@@ -17,15 +17,10 @@ class User(AbstractUser):
     )
 
     def is_head(self):
-        return self.is_superuser or self.role == self.Role.HEAD_OF_FACULTY
+        return self.role == self.Role.HEAD_OF_FACULTY
 
     def is_instructor(self):
-        return not self.is_superuser and self.role == self.Role.INSTRUCTOR
-
-    def save(self, *args, **kwargs):
-        if self.is_superuser:
-            self.role = self.Role.HEAD_OF_FACULTY
-        super().save(*args, **kwargs)
+        return self.role == self.Role.INSTRUCTOR
 
 
 # 2. Program Outcomes (Department-level outcomes: PO1 ... PO11)
