@@ -54,3 +54,61 @@ class POCalculatorTestCase(TestCase):
         po_scores = POCalculator.calculate_student_po_scores_for_course(self.student, self.course)
         self.assertAlmostEqual(po_scores["PO1"], 85.0, places=1)
         self.assertAlmostEqual(po_scores["PO2"], 82.9, places=1)
+
+
+import openpyxl
+from io import BytesIO
+from django.test import TestCase
+from main.models import Course, Assessment, Student, StudentGrade
+from main.services.grade_importer import GradeImporterService
+
+
+class GradeImporterTestCase(TestCase):
+    def setUp(self):
+        self.course = Course.objects.create(code="CSE 311", title="Software")
+        self.midterm = Assessment.objects.create(course=self.course, name="Midterm", weight=40.0)
+
+        # Create two sample students
+        self.student1 = Student.objects.create(student_number="S101", first_name="Ali", last_name="Yılmaz")
+        self.student2 = Student.objects.create(student_number="S102", first_name="Ayşe", last_name="Demir")
+
+    def create_excel_in_memory(self, rows):
+        """Helper function to create an Excel file directly in memory."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.append(["Student Number", "Score"])  # Header
+        for r in rows:
+            ws.append(r)
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output
+
+    def test_successful_bulk_import(self):
+        # Prepare valid Excel data
+        excel_file = self.create_excel_in_memory([
+            ["S101", 85.0],
+            ["S102", 92.5],
+        ])
+
+        result = GradeImporterService.import_excel_grades(self.midterm, excel_file)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["created"], 2)
+
+        # Verify records in the database
+        grade1 = StudentGrade.objects.get(student=self.student1, assessment=self.midterm)
+        self.assertEqual(grade1.score, 85.0)
+
+    def test_import_validation_error_rollback(self):
+        # Prepare Excel with an invalid score (>100)
+        excel_file = self.create_excel_in_memory([
+            ["S101", 70.0],
+            ["S102", 150.0],  # Invalid score
+        ])
+
+        result = GradeImporterService.import_excel_grades(self.midterm, excel_file)
+        self.assertFalse(result["success"])
+        self.assertIn("must be between 0 and 100", result["errors"][0])
+
+        # Verify nothing was saved (Atomic Rollback)
+        self.assertEqual(StudentGrade.objects.filter(assessment=self.midterm).count(), 0)
