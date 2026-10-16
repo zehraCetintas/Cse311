@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+
+{% block title %}Head of Faculty Dashboard{% endblock %}
+
+{% block content %}
+  <div class="mb-4">
+    <h1 class="h2 mb-1">Department Overview</h1>
+    <p class="text-secondary mb-0">Course compliance and department-wide program outcome performance.</p>
+  </div>
+
+  {% if messages %}
+    <section class="mb-4" aria-label="Notifications">
+      {% for message in messages %}
+        <div class="alert {% if 'success' in message.tags %}alert-success{% elif 'error' in message.tags %}alert-danger{% else %}alert-info{% endif %} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <section class="card shadow-sm mb-4">
+    <div class="card-header bg-white py-3">
+      <h2 class="h4 mb-0">Quick import from Bologna</h2>
+    </div>
+    <div class="card-body">
+      <p class="text-secondary">Import courses from an official Bologna syllabus or program URL. Imported courses remain unassigned until you choose an instructor below.</p>
+      <form method="post" action="{% url 'import_bologna_course' %}" class="row g-2 align-items-end">
+        {% csrf_token %}
+        <div class="col">
+          <label for="syllabus-url" class="form-label fw-semibold">Bologna syllabus URL</label>
+          <input class="form-control" id="syllabus-url" name="syllabus_url" type="url"
+                 placeholder="https://obs.acibadem.edu.tr/..." required>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-primary" type="submit">Import course(s)</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="row g-3 mb-4" aria-label="Department metrics">
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100 shadow-sm"><div class="card-body">
+        <div class="small text-secondary">Total Courses</div>
+        <div class="display-6 fw-semibold">{{ total_courses }}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100 shadow-sm"><div class="card-body">
+        <div class="small text-secondary">Active Instructors</div>
+        <div class="display-6 fw-semibold">{{ total_instructors }}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100 shadow-sm"><div class="card-body">
+        <div class="small text-secondary">Total Students</div>
+        <div class="display-6 fw-semibold">{{ total_students }}</div>
+      </div></div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="card h-100 shadow-sm"><div class="card-body">
+        <div class="small text-secondary">Overall Dept Score</div>
+        <div class="display-6 fw-semibold">
+          {% if overall_department_score is not None %}{{ overall_department_score|floatformat:2 }}%{% else %}—{% endif %}
+        </div>
+      </div></div>
+    </div>
+  </section>
+
+  <section class="card shadow-sm mb-4">
+    <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center flex-wrap gap-2">
+      <div>
+        <h2 class="h4 mb-1">Department PO Achievement</h2>
+        <p class="small text-secondary mb-0">Average student scores across the department. Accreditation warning threshold: {{ accreditation_threshold }}%.</p>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="mx-auto" style="max-width: 900px; height: 390px;">
+        <canvas id="department-po-chart" role="img" aria-label="Average department achievement for PO1 to PO11"></canvas>
+      </div>
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        {% for outcome in po_summary %}
+          <span class="badge {% if outcome.score is None %}text-bg-secondary{% elif outcome.score < accreditation_threshold %}text-bg-danger{% else %}text-bg-success{% endif %}">
+            {{ outcome.label }}:
+            {% if outcome.score is None %}No data{% else %}{{ outcome.score|floatformat:1 }}%{% endif %}
+            {% if outcome.score is not None and outcome.score < accreditation_threshold %} · Accreditation Warning{% endif %}
+          </span>
+        {% endfor %}
+      </div>
+      {% if po_warnings %}
+        <div class="alert alert-danger mt-4 mb-0" role="alert" aria-live="polite">
+          <h3 class="h5 alert-heading">Accreditation Warning</h3>
+          <p class="mb-2">The following program outcomes are below the minimum department average of {{ accreditation_threshold|floatformat:1 }}%:</p>
+          <ul class="mb-0">
+            {% for outcome in po_warnings %}
+              <li class="mb-2">
+                <strong>{{ outcome.label }}{% if outcome.title %} · {{ outcome.title }}{% endif %}</strong>:
+                average {{ outcome.score|floatformat:2 }}%.
+                {% if outcome.description %}<span>{{ outcome.description }}</span>{% endif %}
+              </li>
+            {% endfor %}
+          </ul>
+        </div>
+      {% endif %}
+      {{ po_labels|json_script:"department-po-labels" }}
+      {{ po_averages|json_script:"department-po-scores" }}
+    </div>
+  </section>
+
+  <section class="card shadow-sm">
+    <div class="card-header bg-white py-3">
+      <h2 class="h4 mb-0">Course-to-Instructor Assignment Workspace</h2>
+      <p class="small text-secondary mb-0 mt-1">Assign each department course to a registered instructor. An instructor may own multiple courses.</p>
+    </div>
+    <div class="card-body">
+      <div class="table-responsive">
+        <table class="table table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th scope="col">Course Code</th>
+              <th scope="col">Course Title</th>
+              <th scope="col">Assign Instructor</th>
+              <th scope="col">Assessment Total Weight</th>
+              <th scope="col">Students</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in course_audit %}
+              <tr>
+                <td class="text-nowrap">{{ item.course.code }}</td>
+                <td>{{ item.course.title }}</td>
+                <td>
+                  <form method="post" action="{% url 'assign_course_instructor' %}" class="d-flex gap-2 align-items-center">
+                    {% csrf_token %}
+                    <input type="hidden" name="course_id" value="{{ item.course.pk }}">
+                    <label for="instructor-{{ item.course.pk }}" class="visually-hidden">Instructor for {{ item.course.code }}</label>
+                    <select class="form-select form-select-sm" id="instructor-{{ item.course.pk }}" name="instructor_id">
+                      <option value="">Unassigned</option>
+                      {% for instructor in instructors %}
+                        <option value="{{ instructor.pk }}" {% if item.instructor.pk == instructor.pk %}selected{% endif %}>
+                          {{ instructor.get_full_name|default:instructor.username }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                    <button class="btn btn-sm btn-outline-primary text-nowrap" type="submit">Save</button>
+                  </form>
+                </td>
+                <td>
+                  <span class="badge {% if item.assessment_weight_is_valid %}text-bg-success{% elif item.assessment_total_weight > 0 %}text-bg-warning{% else %}text-bg-danger{% endif %}">
+                    {{ item.assessment_total_weight|floatformat:2 }}%
+                  </span>
+                </td>
+                <td>{{ item.student_count }}</td>
+                <td>
+                  {% if item.assessment_weight_is_valid %}
+                    <span class="badge text-bg-success">{{ item.status }}</span>
+                  {% elif item.assessment_total_weight > 0 %}
+                    <span class="badge text-bg-warning">{{ item.status }}</span>
+                  {% else %}
+                    <span class="badge text-bg-danger">{{ item.status }}</span>
+                  {% endif %}
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="6" class="text-center text-secondary py-4">No courses have been registered or imported.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const poLabels = JSON.parse(document.getElementById("department-po-labels").textContent);
+    const poScores = JSON.parse(document.getElementById("department-po-scores").textContent);
+    const threshold = {{ accreditation_threshold }};
+    new Chart(document.getElementById("department-po-chart"), {
+      type: "bar",
+      data: {
+        labels: poLabels,
+        datasets: [{
+          label: "Department average (%)",
+          data: poScores,
+          backgroundColor: poScores.map((score) =>
+            score === null ? "#adb5bd" : score < threshold ? "#dc3545" : "#198754"
+          ),
+          borderRadius: 4,
+        }],
+      },
+      options: {
+        maintainAspectRatio: false,
+        scales: {
+          y: { min: 0, max: 100, ticks: { stepSize: 20 } },
+        },
+        plugins: { legend: { display: false } },
+      },
+    });
+  </script>
+{% endblock %}

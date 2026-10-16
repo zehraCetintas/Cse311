@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Instructor Dashboard{% endblock %}
+
+{% block content %}
+  <div class="mb-4">
+    <h1 class="h2 mb-1">Instructor Dashboard</h1>
+    <p class="text-secondary mb-0">Your courses, outcomes, assessments, and grade imports.</p>
+  </div>
+
+  {% if messages %}
+    <section class="mb-4" aria-label="Notifications">
+      {% for message in messages %}
+        <div class="alert {% if 'success' in message.tags %}alert-success{% elif 'warning' in message.tags %}alert-warning{% elif 'error' in message.tags %}alert-danger{% else %}alert-info{% endif %} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <section class="card shadow-sm mb-4">
+    <div class="card-body">
+      <div class="row g-3 align-items-end">
+        <div class="col-lg-5">
+          <form method="get" action="{% url 'instructor_dashboard' %}">
+            <label for="course-select" class="form-label fw-semibold">Your courses</label>
+            <select class="form-select" id="course-select" name="course_id" onchange="this.form.submit()">
+              {% for course in courses %}
+                <option value="{{ course.pk }}" {% if selected_course.pk == course.pk %}selected{% endif %}>{{ course.code }} · {{ course.title }}</option>
+              {% empty %}
+                <option value="">No courses assigned yet</option>
+              {% endfor %}
+            </select>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  {% if selected_course %}
+    <section class="card shadow-sm mb-4">
+      <div class="card-header bg-white py-3">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+          <div>
+            <h2 class="h4 mb-1">{{ selected_course.code }} · {{ selected_course.title }}</h2>
+            <span class="text-secondary">Course overview</span>
+          </div>
+          <span class="badge {% if assessment_weight_is_valid %}text-bg-success{% else %}text-bg-warning{% endif %} fs-6">
+            Assessment total: {{ total_assessment_weight|floatformat:2 }}%
+            {% if assessment_weight_is_valid %} · 100% complete{% else %} · should equal 100%{% endif %}
+          </span>
+        </div>
+      </div>
+      <div class="card-body">
+        <div class="row g-4">
+          <div class="col-lg-6">
+            <h3 class="h5">Learning Outcomes</h3>
+            <ul class="list-group list-group-flush">
+              {% for outcome in selected_course.learning_outcomes.all %}
+                <li class="list-group-item px-0">
+                  <span class="fw-semibold">{{ outcome.code }}</span>
+                  <span class="text-secondary">— {{ outcome.description }}</span>
+                </li>
+              {% empty %}
+                <li class="list-group-item px-0 text-secondary">No learning outcomes have been added.</li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="col-lg-6">
+            <h3 class="h5">Assessment Components</h3>
+            <ul class="list-group list-group-flush">
+              {% for assessment in assessments %}
+                <li class="list-group-item px-0 d-flex justify-content-between">
+                  <span>{{ assessment.name }}</span>
+                  <span class="fw-semibold">{{ assessment.weight|floatformat:2 }}%</span>
+                </li>
+              {% empty %}
+                <li class="list-group-item px-0 text-secondary">No assessments have been added.</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card shadow-sm">
+      <div class="card-header bg-white py-3">
+        <h2 class="h4 mb-0">Bulk grade ingestion</h2>
+      </div>
+      <div class="card-body">
+        <p class="text-secondary">Upload an Excel workbook with student number and score columns. Imports are all-or-nothing.</p>
+        <form method="post" action="{% url 'upload_grades' %}" enctype="multipart/form-data" class="row g-3 align-items-end">
+          {% csrf_token %}
+          <input type="hidden" name="course_id" value="{{ selected_course.pk }}">
+          <div class="col-md-5">
+            <label for="assessment-select" class="form-label">Assessment</label>
+            <select class="form-select" id="assessment-select" name="assessment_id" required>
+              {% for assessment in assessments %}
+                <option value="{{ assessment.pk }}">{{ assessment.name }} · {{ assessment.weight|floatformat:2 }}%</option>
+              {% empty %}
+                <option value="">No assessments available</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-5">
+            <label for="grades-file" class="form-label">Excel file (.xlsx)</label>
+            <input class="form-control" id="grades-file" name="grades_file" type="file" accept=".xlsx" required>
+          </div>
+          <div class="col-md-2 d-grid">
+            <button class="btn btn-primary" type="submit" {% if not assessments %}disabled{% endif %}>Upload grades</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  {% else %}
+    <div class="card shadow-sm">
+      <div class="card-body py-5 text-center">
+        <h2 class="h4">No courses assigned</h2>
+        <p class="text-secondary mb-0">Your Head of Faculty will assign courses to your workspace.</p>
+      </div>
+    </div>
+  {% endif %}
+{% endblock %}
