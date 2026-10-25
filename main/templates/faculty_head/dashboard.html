@@ -81,11 +81,11 @@
       </div>
       <div class="d-flex flex-wrap gap-2 mt-3">
         {% for outcome in po_summary %}
-          <span class="badge {% if outcome.score is None %}text-bg-secondary{% elif outcome.score < accreditation_threshold %}text-bg-danger{% else %}text-bg-success{% endif %}">
+          <a href="{% url 'po_detail' outcome.label %}" class="badge text-decoration-none {% if outcome.score is None %}text-bg-secondary{% elif outcome.score < accreditation_threshold %}text-bg-danger{% else %}text-bg-success{% endif %}">
             {{ outcome.label }}:
             {% if outcome.score is None %}No data{% else %}{{ outcome.score|floatformat:1 }}%{% endif %}
             {% if outcome.score is not None and outcome.score < accreditation_threshold %} · Accreditation Warning{% endif %}
-          </span>
+          </a>
         {% endfor %}
       </div>
       {% if po_warnings %}
