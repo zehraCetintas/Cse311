@@ -32,7 +32,7 @@ from main.models import (
 from main.services.bologna_scraper import BolognaScraperService
 from main.services.calculator import POCalculator
 from main.services.grade_importer import GradeImporterService
-
+from main.services import analytics as analytics_service
 
 def _dashboard_url_for_user(user):
     if user.role == User.Role.HEAD_OF_FACULTY or user.is_superuser:
@@ -797,5 +797,28 @@ def head_dashboard(request):
             "instructors": User.objects.filter(
                 role=User.Role.INSTRUCTOR, is_active=True
             ).order_by("first_name", "last_name", "username"),
+        },
+    )
+
+
+@login_required
+def po_detail(request, po_code):
+    if (
+        request.user.role != User.Role.HEAD_OF_FACULTY
+        and not request.user.is_superuser
+    ):
+        return HttpResponseForbidden("Only heads of faculty can access this page.")
+
+    outcome = get_object_or_404(ProgramOutcome, code=po_code)
+    breakdown = analytics_service.po_course_breakdown(po_code)
+    uncovered = {po.code for po in analytics_service.uncovered_pos()}
+    return render(
+        request,
+        "faculty_head/po_detail.html",
+        {
+            "outcome": outcome,
+            "rows": breakdown["rows"],
+            "dept_average": breakdown["dept_average"],
+            "is_uncovered": po_code in uncovered,
         },
     )
