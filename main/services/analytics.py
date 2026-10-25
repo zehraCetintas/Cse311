@@ -1,6 +1,12 @@
 from collections import defaultdict
 
-from main.models import AssessmentToLO, Course, LOToPO, StudentGrade
+from main.models import (
+    AssessmentToLO,
+    Course,
+    LOToPO,
+    ProgramOutcome,
+    StudentGrade,
+)
 
 
 def compute_student_scores(course_ids=None):
@@ -90,3 +96,59 @@ def department_po_averages(exclude_prefix="ACU"):
             sums[po_code] += score
             counts[po_code] += 1
     return {code: round(sums[code] / counts[code], 2) for code in counts}
+
+
+def po_course_breakdown(po_code, exclude_prefix="ACU", threshold=50.0):
+    """Bir PO için ders bazlı döküm: hangi ders PO'yu yükseltiyor, hangisi düşürüyor."""
+    mappings = (
+        LOToPO.objects.filter(program_outcome__code=po_code)
+        .exclude(learning_outcome__course__code__istartswith=exclude_prefix)
+        .select_related("learning_outcome__course")
+    )
+    courses = {}
+    los_by_course = defaultdict(list)
+    for m in mappings:
+        course = m.learning_outcome.course
+        courses[course.pk] = course
+        los_by_course[course.pk].append(
+            {"code": m.learning_outcome.code, "weight": m.weight}
+        )
+
+    scores = compute_student_scores(list(courses))
+    dept_average = department_po_averages(exclude_prefix).get(po_code)
+
+    rows = []
+    for course_id, course in courses.items():
+        values = [
+            data["courses"][course_id]["po"][po_code]
+            for data in scores.values()
+            if course_id in data["courses"]
+            and po_code in data["courses"][course_id]["po"]
+        ]
+        average = round(sum(values) / len(values), 2) if values else None
+        rows.append(
+            {
+                "course": course,
+                "los": los_by_course[course_id],
+                "student_count": len(values),
+                "average": average,
+                "lowest": min(values) if values else None,
+                "below_threshold": sum(1 for v in values if v < threshold),
+                "difference": (
+                    round(average - dept_average, 2)
+                    if average is not None and dept_average is not None
+                    else None
+                ),
+            }
+        )
+    rows.sort(key=lambda r: (r["average"] is None, r["average"] or 0))
+    return {"rows": rows, "dept_average": dept_average}
+
+
+def uncovered_pos(exclude_prefix="ACU"):
+    """Hiçbir derse bağlanmamış PO'lar (örn. PO9)."""
+    covered = set(
+        LOToPO.objects.exclude(learning_outcome__course__code__istartswith=exclude_prefix)
+        .values_list("program_outcome__code", flat=True)
+    )
+    return [po for po in ProgramOutcome.objects.order_by("code") if po.code not in covered]

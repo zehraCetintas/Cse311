@@ -26,6 +26,7 @@ urlpatterns = [
         name="update_profile_picture",
     ),
     path("faculty-head/", views.head_dashboard, name="head_dashboard"),
+    path("faculty-head/po/<str:po_code>/", views.po_detail, name="po_detail"),
     path(
         "faculty-head/import-course/",
         views.import_bologna_course,
