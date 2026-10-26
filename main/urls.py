@@ -40,3 +40,11 @@ urlpatterns = [
     path("instructor/upload-grades/", views.upload_grades, name="upload_grades"),
     path("logout/", LogoutView.as_view(next_page="login"), name="logout"),
 ]
+from django.urls import path
+from . import views
+
+app_name = 'main'
+
+urlpatterns = [
+    path('student/dashboard/', views.student_dashboard, name='student_dashboard'),
+]
