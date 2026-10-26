@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+
+{% block title %}PO List{% endblock %}
+
+{% block content %}
+  <div class="mb-4">
+    <h1 class="h2 mb-1">PO List</h1>
+    <p class="text-secondary mb-0">Program outcomes for your academic program.</p>
+  </div>
+
+  <section class="card shadow-sm">
+    <div class="card-header bg-white py-3">
+      <h2 class="h4 mb-0">Program Outcomes</h2>
+    </div>
+    <div class="card-body">
+      {% if program_outcomes %}
+        <div class="row row-cols-1 row-cols-md-2 g-3">
+          {% for outcome in program_outcomes %}
+            <div class="col">
+              <article class="border rounded p-3 h-100">
+                <h3 class="h6 fw-semibold">{{ outcome.code }} · {{ outcome.title }}</h3>
+                <p class="text-secondary mb-0">{{ outcome.description }}</p>
+              </article>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <p class="text-secondary mb-0">No program outcomes are available.</p>
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

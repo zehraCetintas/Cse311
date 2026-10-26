@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Dashboard{% endblock %} | ACU</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css" rel="stylesheet">
+    <style>
+      .student-avatar,
+      .student-avatar-placeholder {
+        width: 36px;
+        height: 36px;
+      }
+      .student-avatar {
+        object-fit: cover;
+      }
+      .profile-popover {
+        min-width: 280px;
+      }
+      .role-sidebar .nav-link {
+        border-radius: .5rem;
+        color: var(--bs-body-color);
+        padding: .75rem 1rem;
+      }
+      .role-sidebar .nav-link:hover,
+      .role-sidebar .nav-link:focus {
+        background: var(--bs-primary-bg-subtle);
+        color: var(--bs-primary-text-emphasis);
+      }
+    </style>
+  </head>
+  <body class="bg-body-tertiary">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary sticky-top">
+      <div class="container-fluid px-3">
+        <div class="d-flex align-items-center gap-2">
+          {% if request.user.is_authenticated %}
+            <button class="btn btn-outline-light border-0 p-2" type="button"
+                    data-bs-toggle="offcanvas" data-bs-target="#role-navigation"
+                    aria-controls="role-navigation" aria-label="Open navigation menu">
+              <i class="fa-solid fa-bars" aria-hidden="true"></i>
+            </button>
+          {% endif %}
+          <a class="navbar-brand fw-semibold"
+             href="{% if request.user.is_authenticated and request.user.role == 'HEAD' %}{% url 'head_dashboard' %}{% elif request.user.is_authenticated and request.user.role == 'STUDENT' %}{% url 'student_dashboard' %}{% elif request.user.is_authenticated %}{% url 'instructor_dashboard' %}{% else %}{% url 'login' %}{% endif %}">ACU</a>
+        </div>
+        {% if request.user.is_authenticated %}
+          <div class="d-flex align-items-center gap-3 text-white">
+            <span class="fw-medium text-truncate" style="max-width: 40vw">
+              {% if request.user.role == "HEAD" %}
+                Head of Faculty
+              {% elif request.user.role == "INSTRUCTOR" %}
+                Instructor · {{ request.user.get_full_name|default:request.user.username }}
+              {% else %}
+                {{ request.user.get_full_name|default:request.user.username }}
+              {% endif %}
+            </span>
+            <div class="dropdown">
+              <button class="btn btn-link p-0 border-0 rounded-circle"
+                      type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                      aria-label="Open profile menu">
+                {% if request.user.profile_picture %}
+                  <img class="student-avatar rounded-circle border border-2 border-white"
+                       src="{{ request.user.profile_picture.url }}" alt="">
+                {% elif request.user.role == "STUDENT" and request.user.student_profile.profile_picture %}
+                  <img class="student-avatar rounded-circle border border-2 border-white"
+                       src="{{ request.user.student_profile.profile_picture.url }}" alt="">
+                {% else %}
+                  <span class="student-avatar-placeholder rounded-circle bg-white text-primary fw-semibold d-inline-flex align-items-center justify-content-center"
+                        aria-hidden="true">{{ request.user.first_name|slice:":1" }}{{ request.user.last_name|slice:":1" }}</span>
+                {% endif %}
+              </button>
+              <div class="dropdown-menu dropdown-menu-end profile-popover p-3 shadow">
+                <div class="mb-3">
+                  <div class="fw-semibold">{{ request.user.get_full_name|default:request.user.username }}</div>
+                  <div class="small text-secondary">
+                    {% if request.user.role == "HEAD" %}Head of Faculty{% elif request.user.role == "INSTRUCTOR" %}Instructor{% else %}Student{% endif %}
+                  </div>
+                </div>
+                <form method="post" action="{% url 'update_profile_picture' %}"
+                      enctype="multipart/form-data" class="mb-3">
+                  {% csrf_token %}
+                  <label for="navbar-profile-picture" class="form-label small mb-1">Change profile picture</label>
+                  <input class="form-control form-control-sm mb-2" type="file"
+                         id="navbar-profile-picture" name="profile_picture"
+                         accept="image/*" required>
+                  <button class="btn btn-primary btn-sm w-100" type="submit">Save picture</button>
+                </form>
+                <form method="post" action="{% url 'logout' %}" class="border-top pt-2">
+                  {% csrf_token %}
+                  <button class="btn btn-outline-secondary btn-sm w-100" type="submit">
+                    <i class="fa-solid fa-arrow-right-from-bracket me-1" aria-hidden="true"></i>
+                    Log out
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </nav>
+    {% if request.user.is_authenticated %}
+      <div class="offcanvas offcanvas-start role-sidebar" tabindex="-1" id="role-navigation"
+           aria-labelledby="role-navigation-title">
+        <div class="offcanvas-header border-bottom">
+          <h2 class="offcanvas-title h5 mb-0" id="role-navigation-title">
+            ACU · {% if request.user.role == "HEAD" %}Head of Faculty{% elif request.user.role == "INSTRUCTOR" %}Instructor{% else %}Student{% endif %} Menu
+          </h2>
+          <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close menu"></button>
+        </div>
+        <nav class="offcanvas-body" aria-label="Main navigation">
+          <ul class="nav flex-column gap-1">
+            {% if request.user.role == "HEAD" %}
+              <li class="nav-item"><a class="nav-link" href="{% url 'head_dashboard' %}">Department Dashboard</a></li>
+            {% elif request.user.role == "INSTRUCTOR" %}
+              <li class="nav-item"><a class="nav-link" href="{% url 'instructor_dashboard' %}">Your Courses</a></li>
+            {% else %}
+              <li class="nav-item"><a class="nav-link" href="{% url 'student_dashboard' %}#dashboard">Dashboard · Ana Sayfa</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'student_program_outcomes' %}">PO List</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'student_dashboard' %}#learning-outcomes">Learning Outcomes · LO List</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'student_dashboard' %}#academic-breakdown">My Grades Breakdown</a></li>
+            {% endif %}
+          </ul>
+        </nav>
+      </div>
+    {% endif %}
+    <main class="container py-4">
+      {% block content %}{% endblock %}
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    {% if request.user.is_authenticated and request.user.role == "STUDENT" %}
+      <script>
+        const roleNavigation = document.getElementById("role-navigation");
+        roleNavigation.addEventListener("click", (event) => {
+          const link = event.target.closest("a[href*='#']");
+          if (!link) return;
+
+          const destination = new URL(link.href);
+          if (destination.pathname !== window.location.pathname) return;
+
+          const target = document.getElementById(
+            decodeURIComponent(destination.hash.slice(1))
+          );
+          if (!target) return;
+
+          event.preventDefault();
+          history.replaceState(null, "", destination.hash);
+          roleNavigation.addEventListener("hidden.bs.offcanvas", () => {
+            target.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, { once: true });
+          bootstrap.Offcanvas.getOrCreateInstance(roleNavigation).hide();
+        });
+      </script>
+    {% endif %}
+  </body>
+</html>
