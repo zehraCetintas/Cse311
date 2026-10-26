@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}{{ outcome.code }} Detail{% endblock %}
+
+{% block content %}
+<div style="max-width: 1100px; margin: 0 auto; padding: 24px 16px;">
+
+  <p><a href="{% url 'head_dashboard' %}">&larr; Back to Department Overview</a></p>
+
+  <h1>{{ outcome.code }}: {{ outcome.title }}</h1>
+  <p>{{ outcome.description }}</p>
+
+  {% if is_uncovered %}
+    <div style="background:#fdecea; border-left:4px solid #c0392b; padding:14px 16px; margin:20px 0; border-radius:6px;">
+      <strong>Curriculum gap:</strong>
+      No course in the department is mapped to {{ outcome.code }}, so this outcome is never measured.
+      Map at least one learning outcome to {{ outcome.code }} to make it measurable for accreditation.
+    </div>
+  {% else %}
+    <p>
+      Department average:
+      <strong>{% if dept_average is not None %}{{ dept_average }}%{% else %}No data{% endif %}</strong>
+    </p>
+
+    <h2>Contribution by course</h2>
+    <p style="color:#666;">
+      Courses are sorted from lowest to highest average. "Difference" is the course average minus the department average.
+    </p>
+
+    <div style="overflow-x:auto;">
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr style="background:#f0f3f8; text-align:left;">
+            <th style="padding:10px;">Course</th>
+            <th style="padding:10px;">Mapped LOs (weight)</th>
+            <th style="padding:10px;">Students</th>
+            <th style="padding:10px;">Average</th>
+            <th style="padding:10px;">Lowest</th>
+            <th style="padding:10px;">Below 50%</th>
+            <th style="padding:10px;">Difference</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+            <tr style="border-bottom:1px solid #e3e6ec;">
+              <td style="padding:10px;">
+                <strong>{{ row.course.code }}</strong><br>
+                <span style="color:#666;">{{ row.course.title }}</span>
+              </td>
+              <td style="padding:10px;">
+                {% for lo in row.los %}{{ lo.code }} ({{ lo.weight }}){% if not forloop.last %}, {% endif %}{% endfor %}
+              </td>
+              <td style="padding:10px;">{{ row.student_count }}</td>
+              <td style="padding:10px;">
+                {% if row.average is not None %}<strong>{{ row.average }}%</strong>{% else %}No data{% endif %}
+              </td>
+              <td style="padding:10px;">
+                {% if row.lowest is not None %}{{ row.lowest }}%{% else %}-{% endif %}
+              </td>
+              <td style="padding:10px;">
+                {% if row.below_threshold %}
+                  <span style="color:#c0392b; font-weight:bold;">{{ row.below_threshold }}</span>
+                {% else %}0{% endif %}
+              </td>
+              <td style="padding:10px;">
+                {% if row.difference is None %}-
+                {% elif row.difference < 0 %}
+                  <span style="color:#c0392b;">{{ row.difference }}</span>
+                {% else %}
+                  <span style="color:#2e7d32;">+{{ row.difference }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="7" style="padding:14px;">No courses are mapped to this outcome.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+
+</div>
+{% endblock %}

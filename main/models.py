@@ -15,6 +15,11 @@ class User(AbstractUser):
         choices=Role.choices,
         default=Role.INSTRUCTOR
     )
+    profile_picture = models.ImageField(
+        upload_to="profile_pics/",
+        blank=True,
+        null=True,
+    )
 
     def is_head(self):
         return self.is_superuser or self.role == self.Role.HEAD_OF_FACULTY
@@ -116,6 +121,18 @@ class Student(models.Model):
     student_number = models.CharField(max_length=50, unique=True)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
+    faculty = models.CharField(max_length=255, blank=True)
+    department = models.CharField(max_length=255, blank=True)
+    profile_picture = models.ImageField(
+        upload_to='profile_pics/',
+        blank=True,
+        null=True,
+    )
+    enrolled_courses = models.ManyToManyField(
+        Course,
+        blank=True,
+        related_name='enrolled_students',
+    )
     user = models.OneToOneField(
         User,
         on_delete=models.CASCADE,

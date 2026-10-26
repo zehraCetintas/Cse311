@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+
+{% block title %}Student Dashboard{% endblock %}
+
+{% block content %}
+  <div id="dashboard" class="mb-4">
+    <h1 class="h2 mb-1">Student Dashboard</h1>
+    <p class="text-secondary mb-0">Your academic identity, course progress, and program outcome competencies.</p>
+  </div>
+
+  {% if messages %}
+    <section class="mb-4" aria-label="Notifications">
+      {% for message in messages %}
+        <div class="alert {% if 'success' in message.tags %}alert-success{% elif 'error' in message.tags %}alert-danger{% else %}alert-info{% endif %} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  {% if students is not None %}
+    <section class="card shadow-sm mb-4">
+      <div class="card-body">
+        <form method="get" action="{% url 'student_dashboard' %}" class="row g-2 align-items-end">
+          <div class="col-md-8">
+            <label for="student-select" class="form-label">Preview student</label>
+            <select class="form-select" id="student-select" name="student_id" required>
+              <option value="">Choose a student</option>
+              {% for student_option in students %}
+                <option value="{{ student_option.pk }}">{{ student_option.student_number }} · {{ student_option.first_name }} {{ student_option.last_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-4 d-grid">
+            <button class="btn btn-primary" type="submit">View dashboard</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if student %}
+    <section class="card shadow-sm mb-4">
+      <div class="card-header bg-white py-3">
+        <h2 class="h4 mb-0">Academic Identity Card</h2>
+      </div>
+      <div class="card-body">
+        <div class="row g-4 align-items-center">
+          <div class="col-auto">
+            {% if avatar_url %}
+              <img src="{{ avatar_url }}" class="rounded-circle border" width="88" height="88"
+                   style="object-fit: cover" alt="{{ full_name }} profile picture">
+            {% else %}
+              <div class="rounded-circle bg-primary-subtle text-primary fw-semibold d-flex align-items-center justify-content-center"
+                   style="width: 88px; height: 88px" aria-label="Profile picture placeholder">
+                {{ student.first_name|slice:":1" }}{{ student.last_name|slice:":1" }}
+              </div>
+            {% endif %}
+          </div>
+          <div class="col-md">
+            <div class="small text-secondary">Student Full Name</div>
+            <div class="h4 mb-0">{{ full_name }}</div>
+          </div>
+          <div class="col-md">
+            <div class="small text-secondary">Student Number</div>
+            <div class="h5 mb-0">{{ student.student_number }}</div>
+          </div>
+          <div class="col-md">
+            <div class="small text-secondary">Faculty · Fakülte</div>
+            <div class="h6 mb-0">{{ faculty }}</div>
+          </div>
+          <div class="col-md">
+            <div class="small text-secondary">Department · Bölüm</div>
+            <div class="h5 mb-0">{{ department }}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="program-outcomes" class="card shadow-sm mb-4">
+      <div class="card-header bg-white py-3">
+        <h2 class="h4 mb-0">Program Outcome Competencies</h2>
+      </div>
+      <div class="card-body">
+        <div class="mx-auto" style="max-width: 680px; height: 420px;">
+          <canvas id="po-radar-chart" role="img" aria-label="Radar chart of competency scores across PO1 to PO11"></canvas>
+        </div>
+        <ul class="list-inline text-center small mb-0">
+          <li class="list-inline-item"><span class="badge rounded-pill text-bg-success">Strong: 70–100</span></li>
+          <li class="list-inline-item"><span class="badge rounded-pill text-bg-warning">Developing: 50–69</span></li>
+          <li class="list-inline-item"><span class="badge rounded-pill text-bg-danger">Needs improvement: below 50</span></li>
+          <li class="list-inline-item"><span class="badge rounded-pill text-bg-secondary">No score yet</span></li>
+        </ul>
+        {{ po_labels|json_script:"po-labels-data" }}
+        {{ po_scores|json_script:"po-scores-data" }}
+      </div>
+    </section>
+
+    <section id="learning-outcomes" class="card shadow-sm mb-4">
+      <div class="card-header bg-white py-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+        <h2 class="h4 mb-0">Learning Outcomes</h2>
+        <div>
+          <label for="lo-course-filter" class="visually-hidden">Filter learning outcomes by course</label>
+          <select id="lo-course-filter" class="form-select form-select-sm">
+            <option value="">All enrolled courses</option>
+            {% for course in enrolled_courses %}
+              <option value="{{ course.pk }}">{{ course.code }} · {{ course.title }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+      <div class="card-body">
+        {% if learning_outcomes %}
+          <div id="learning-outcome-list" class="row row-cols-1 row-cols-md-2 g-3">
+            {% for outcome in learning_outcomes %}
+              <div class="col learning-outcome-item" data-course-id="{{ outcome.course_id }}">
+                <article class="border rounded p-3 h-100">
+                  <div class="small text-primary fw-semibold">{{ outcome.course.code }} · {{ outcome.code }}</div>
+                  <p class="mb-0">{{ outcome.description }}</p>
+                </article>
+              </div>
+            {% endfor %}
+          </div>
+          <p id="no-learning-outcomes" class="text-secondary mb-0 d-none">No learning outcomes are available for this course.</p>
+        {% else %}
+          <p class="text-secondary mb-0">No learning outcomes are available for your enrolled courses.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <section id="academic-breakdown" class="card shadow-sm">
+      <div class="card-header bg-white py-3">
+        <h2 class="h4 mb-0">Academic Breakdown</h2>
+      </div>
+      <div class="card-body">
+        {% if course_breakdowns %}
+          <div class="table-responsive">
+            <table class="table table-hover align-middle mb-0">
+              <thead>
+                <tr>
+                  <th scope="col">Course Code</th>
+                  <th scope="col">Course Title</th>
+                  <th scope="col">Assessment</th>
+                  <th scope="col">Weight</th>
+                  <th scope="col">Received Score</th>
+                  <th scope="col">Course LO Achievements</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for breakdown in course_breakdowns %}
+                  {% for grade in breakdown.grades %}
+                    <tr>
+                      <td class="text-nowrap">{{ breakdown.course.code }}</td>
+                      <td>{{ breakdown.course.title }}</td>
+                      <td>{{ grade.assessment.name }}</td>
+                      <td>{{ grade.assessment.weight|floatformat:2 }}%</td>
+                      <td><span class="fw-semibold">{{ grade.score|floatformat:2 }}%</span></td>
+                      <td>
+                        {% for lo_code, lo_score in breakdown.lo_scores.items %}
+                          {% if lo_score is not None %}
+                            <span class="badge rounded-pill text-bg-primary me-1 mb-1">{{ lo_code }}: {{ lo_score|floatformat:2 }}%</span>
+                          {% else %}
+                            <span class="badge rounded-pill text-bg-secondary me-1 mb-1">{{ lo_code }}: Not graded</span>
+                          {% endif %}
+                        {% empty %}
+                          <span class="text-secondary">No learning outcomes</span>
+                        {% endfor %}
+                      </td>
+                    </tr>
+                  {% endfor %}
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="text-secondary mb-0">There are no assessment scores available yet.</p>
+        {% endif %}
+      </div>
+    </section>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>
+      const loCourseFilter = document.getElementById("lo-course-filter");
+      if (loCourseFilter) {
+        loCourseFilter.addEventListener("change", () => {
+          const selectedCourse = loCourseFilter.value;
+          const outcomes = [...document.querySelectorAll(".learning-outcome-item")];
+          let visibleCount = 0;
+          outcomes.forEach((outcome) => {
+            const visible = !selectedCourse || outcome.dataset.courseId === selectedCourse;
+            outcome.classList.toggle("d-none", !visible);
+            if (visible) visibleCount += 1;
+          });
+          document.getElementById("no-learning-outcomes")
+            ?.classList.toggle("d-none", visibleCount !== 0);
+        });
+      }
+
+      const poLabels = JSON.parse(document.getElementById("po-labels-data").textContent);
+      const poScores = JSON.parse(document.getElementById("po-scores-data").textContent);
+      const pointColors = poScores.map((score) => {
+        if (score === null) return "#adb5bd";
+        if (score >= 70) return "#198754";
+        if (score < 50) return "#dc3545";
+        return "#ffc107";
+      });
+      new Chart(document.getElementById("po-radar-chart"), {
+        type: "radar",
+        data: {
+          labels: poLabels,
+          datasets: [{
+            label: "Competency score",
+            data: poScores,
+            backgroundColor: "rgba(13, 110, 253, 0.16)",
+            borderColor: "#0d6efd",
+            pointBackgroundColor: pointColors,
+            pointBorderColor: "#fff",
+            pointHoverBackgroundColor: "#fff",
+            pointHoverBorderColor: pointColors,
+          }],
+        },
+        options: {
+          maintainAspectRatio: false,
+          scales: {
+            r: {
+              min: 0,
+              max: 100,
+              ticks: { stepSize: 20 },
+            },
+          },
+        },
+      });
+    </script>
+  {% elif students is not None %}
+    <div class="alert alert-info">Select a student to preview their dashboard.</div>
+  {% endif %}
+{% endblock %}
