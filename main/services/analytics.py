@@ -11,9 +11,9 @@ from main.models import (
 
 def compute_student_scores(course_ids=None):
     """
-    POCalculator ile aynı formüller, ama tüm veriyi birkaç sorguyla çeker.
-    Döndürür: {student_id: {"courses": {course_id: {"lo": {...}, "po": {...}}},
-                            "po": {po_code: genel_skor}}}
+    Same formulas as POCalculator, but loads all data in a few queries.
+    Returns: {student_id: {"courses": {course_id: {"lo": {...}, "po": {...}}},
+                           "po": {po_code: overall_score}}}
     """
     a2lo_qs = AssessmentToLO.objects.select_related("learning_outcome")
     lo2po_qs = LOToPO.objects.select_related("learning_outcome", "program_outcome")
@@ -85,7 +85,7 @@ def compute_student_scores(course_ids=None):
 
 
 def department_po_averages(exclude_prefix="ACU"):
-    """head_dashboard'daki PO ortalamalarıyla aynı mantık."""
+    """Same logic as the PO averages in head_dashboard."""
     course_ids = list(
         Course.objects.exclude(code__istartswith=exclude_prefix).values_list("pk", flat=True)
     )
@@ -99,7 +99,7 @@ def department_po_averages(exclude_prefix="ACU"):
 
 
 def po_course_breakdown(po_code, exclude_prefix="ACU", threshold=50.0):
-    """Bir PO için ders bazlı döküm: hangi ders PO'yu yükseltiyor, hangisi düşürüyor."""
+    """Per-course breakdown for one PO: which courses raise it and which lower it."""
     mappings = (
         LOToPO.objects.filter(program_outcome__code=po_code)
         .exclude(learning_outcome__course__code__istartswith=exclude_prefix)
@@ -146,7 +146,7 @@ def po_course_breakdown(po_code, exclude_prefix="ACU", threshold=50.0):
 
 
 def uncovered_pos(exclude_prefix="ACU"):
-    """Hiçbir derse bağlanmamış PO'lar (örn. PO9)."""
+    """POs not mapped to any course (e.g. PO9)."""
     covered = set(
         LOToPO.objects.exclude(learning_outcome__course__code__istartswith=exclude_prefix)
         .values_list("program_outcome__code", flat=True)
