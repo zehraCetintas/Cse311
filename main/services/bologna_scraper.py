@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from django.db import transaction
 
 from main.models import Assessment, Course, LearningOutcome
+from main.services.po_matcher import map_course_los_to_pos
 
 
 class BolognaScraperService:
@@ -157,6 +158,36 @@ class BolognaScraperService:
         return aliases.get(normalized_name, normalized_name)
 
     @staticmethod
+    def _clean_learning_outcome(value: str) -> str:
+        text = re.sub(r"^\s*(?:\d+[.)]|[•*-])\s*", "", value)
+        return re.sub(r"\s+", " ", text).strip()
+
+    @staticmethod
+    def _extract_course_learning_outcomes(soup: BeautifulSoup) -> list[str]:
+        heading_pattern = re.compile(
+            r"course\s+learning\s+outcomes?.*upon\s+the\s+successful\s+completion",
+            re.IGNORECASE | re.DOTALL,
+        )
+        for text_node in soup.find_all(string=heading_pattern):
+            container = text_node.parent
+            for _ in range(5):
+                if container is None:
+                    break
+                items = container.find_all(["li"])
+                if items:
+                    outcomes = []
+                    for item in items:
+                        outcome = BolognaScraperService._clean_learning_outcome(
+                            item.get_text(" ", strip=True)
+                        )
+                        if outcome and outcome not in outcomes:
+                            outcomes.append(outcome)
+                    if outcomes:
+                        return outcomes
+                container = container.parent
+        return []
+
+    @staticmethod
     def deduplicate_assessments(assessments):
         """Keep one representative when Bologna lists bilingual duplicate rows."""
         unique = {}
@@ -273,7 +304,9 @@ class BolognaScraperService:
         data = {
             "course_code": "",
             "course_title": "",
-            "learning_outcomes": [],
+            "learning_outcomes": BolognaScraperService._extract_course_learning_outcomes(
+                soup
+            ),
             "assessments": [],
         }
 
@@ -359,7 +392,7 @@ class BolognaScraperService:
                     candidates = cells
                 for cell in candidates:
                     text = cell.get_text(" ", strip=True)
-                    clean_text = re.sub(r"^\d+[\.\)]\s*", "", text)
+                    clean_text = BolognaScraperService._clean_learning_outcome(text)
                     if (
                         clean_text
                         and not clean_text.isdigit()
@@ -557,6 +590,8 @@ class BolognaScraperService:
                         code=f"LO{idx}",
                         defaults={"description": lo_desc},
                     )
+
+                map_course_los_to_pos(course)
 
                 assessments = BolognaScraperService.deduplicate_assessments(
                     data.get("assessments", [])

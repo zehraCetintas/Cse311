@@ -33,6 +33,7 @@ from main.services.bologna_scraper import BolognaScraperService
 from main.services.calculator import POCalculator
 from main.services.grade_importer import GradeImporterService
 from main.services import analytics as analytics_service
+from main.services.po_matcher import map_course_los_to_pos
 
 def _dashboard_url_for_user(user):
     if user.role == User.Role.HEAD_OF_FACULTY or user.is_superuser:
@@ -679,6 +680,19 @@ def head_dashboard(request):
             {
                 "course": course,
                 "instructor": course.instructor,
+                "learning_outcomes": [
+                    {
+                        "outcome": learning_outcome,
+                        "mappings": list(
+                            learning_outcome.po_mappings.select_related(
+                                "program_outcome"
+                            ).order_by("program_outcome__code")
+                        ),
+                    }
+                    for learning_outcome in course.learning_outcomes.order_by(
+                        "code"
+                    )
+                ],
                 "assessment_total_weight": total_weight,
                 "assessment_weight_is_valid": compliant,
                 "student_count": student_count,
@@ -799,6 +813,28 @@ def head_dashboard(request):
             ).order_by("first_name", "last_name", "username"),
         },
     )
+
+
+@login_required
+@require_POST
+def recalculate_course_po_mappings(request, course_id):
+    if (
+        request.user.role != User.Role.HEAD_OF_FACULTY
+        and not request.user.is_superuser
+    ):
+        return HttpResponseForbidden(
+            "Only heads of faculty can recalculate course outcome mappings."
+        )
+
+    course = get_object_or_404(Course, pk=course_id)
+    mappings = map_course_los_to_pos(course)
+    mapped_count = sum(bool(outcome_mappings) for outcome_mappings in mappings.values())
+    messages.success(
+        request,
+        f"Recalculated LO-PO weights for {course.code}: "
+        f"{mapped_count} of {len(mappings)} learning outcomes matched.",
+    )
+    return redirect("head_dashboard")
 
 
 @login_required

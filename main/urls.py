@@ -37,6 +37,11 @@ urlpatterns = [
         views.assign_course_instructor,
         name="assign_course_instructor",
     ),
+    path(
+        "faculty-head/course/<int:course_id>/recalculate-lo-po/",
+        views.recalculate_course_po_mappings,
+        name="recalculate_course_po_mappings",
+    ),
     path("instructor/upload-grades/", views.upload_grades, name="upload_grades"),
     path("logout/", LogoutView.as_view(next_page="login"), name="logout"),
 ]
