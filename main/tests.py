@@ -309,11 +309,11 @@ class BolognaScraperTestCase(TestCase):
         )
         self.assertEqual(mock_get.call_count, 4)
 
-    def test_single_course_scraping_rejects_acu_codes(self):
+    def test_single_course_scraping_rejects_excluded_prefixes(self):
         mock_get = Mock()
         mock_get.return_value = self._response(
             self._course_detail_html(
-                "ACU 101", "University Common Elective", "General studies.", []
+                "MED 101", "Medicine elective", "General studies.", []
             )
         )
 
@@ -323,7 +323,7 @@ class BolognaScraperTestCase(TestCase):
             )
 
         self.assertFalse(result["success"])
-        self.assertIn("starting with ACU", result["error"])
+        self.assertIn("ACU, MED, or EMED", result["error"])
         self.assertFalse(Course.objects.exists())
 
     def test_single_course_scraping_keeps_codes_with_acu_elsewhere(self):
@@ -342,8 +342,28 @@ class BolognaScraperTestCase(TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(result["data"]["course_code"], "CSEACU101")
 
+    def test_single_course_scraping_recognizes_ads_course_codes(self):
+        response = self._response(
+            self._course_detail_html(
+                "ADS 1001", "Applied Data Science", "Analyze data sets.", []
+            )
+        )
+
+        with patch(
+            "main.services.bologna_scraper.requests.get",
+            return_value=response,
+        ):
+            result = BolognaScraperService.scrape_course_data(
+                "https://obs.acibadem.edu.tr/course.aspx"
+            )
+
+        self.assertTrue(result["success"])
+        self.assertEqual(result["data"]["course_code"], "ADS1001")
+
     @patch("main.services.bologna_scraper.requests.get")
-    def test_catalog_scraping_excludes_acu_courses(self, mock_get):
+    def test_catalog_scraping_excludes_unwanted_prefixes_and_keeps_ads(
+        self, mock_get
+    ):
         listing_html = """
         <table>
             <tr>
@@ -351,26 +371,42 @@ class BolognaScraperTestCase(TestCase):
                 <td>University Common Elective</td>
             </tr>
             <tr>
-                <td><a onclick="return prolizOpenCourseDetails(468677);">CSEACU 101</a></td>
-                <td>ACU Studies</td>
+                <td><a onclick="return prolizOpenCourseDetails(468677);">MED 101</a></td>
+                <td>Medicine</td>
             </tr>
             <tr>
                 <td><a onclick="return prolizOpenCourseDetails(468678);">CSE 311</a></td>
                 <td>Software</td>
             </tr>
+            <tr>
+                <td><a onclick="return prolizOpenCourseDetails(468679);">ADS 1001</a></td>
+                <td>Applied Data Science</td>
+            </tr>
+            <tr>
+                <td><a onclick="return prolizOpenCourseDetails(468680);">EMED 101</a></td>
+                <td>Emergency Medicine</td>
+            </tr>
+            <tr>
+                <td><a onclick="return prolizOpenCourseDetails(468681);">CSEACU 101</a></td>
+                <td>ACU Studies</td>
+            </tr>
         </table>
         """
-        internal_acu_detail = self._course_detail_html(
-            "CSEACU 101", "ACU Studies", "Study applications.", [("Final", 100)]
-        )
         ordinary_detail = self._course_detail_html(
             "CSE 311", "Software", "Design applications.", [("Final", 100)]
+        )
+        ads_detail = self._course_detail_html(
+            "ADS 1001", "Applied Data Science", "Analyze data sets.", [("Final", 100)]
+        )
+        internal_acu_detail = self._course_detail_html(
+            "CSEACU 101", "ACU Studies", "Study applications.", [("Final", 100)]
         )
         mock_get.side_effect = [
             self._response("<html>Program page</html>"),
             self._response(listing_html),
-            self._response(internal_acu_detail),
             self._response(ordinary_detail),
+            self._response(ads_detail),
+            self._response(internal_acu_detail),
         ]
 
         result = BolognaScraperService.scrape_course_data(
@@ -381,15 +417,20 @@ class BolognaScraperTestCase(TestCase):
         self.assertTrue(result["success"])
         self.assertEqual(
             [course["course_code"] for course in result["courses"]],
-            ["CSEACU101", "CSE311"],
+            ["CSE311", "ADS1001", "CSEACU101"],
         )
-        self.assertEqual(mock_get.call_count, 4)
+        self.assertEqual(mock_get.call_count, 5)
         synced_courses = BolognaScraperService.sync_to_database(result)
         self.assertEqual(
             [course.code for course in synced_courses],
-            ["CSEACU101", "CSE311"],
+            ["CSE311", "ADS1001", "CSEACU101"],
         )
-        self.assertFalse(Course.objects.filter(code__startswith="ACU").exists())
+        self.assertFalse(
+            any(
+                course.code.upper().startswith(("ACU", "MED", "EMED"))
+                for course in Course.objects.all()
+            )
+        )
 
     @patch("main.services.bologna_scraper.requests.get")
     def test_program_url_selects_course_and_parses_contributions(self, mock_get):
