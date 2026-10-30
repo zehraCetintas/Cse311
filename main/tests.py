@@ -1,7 +1,8 @@
 from django.contrib.auth import authenticate
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.management import call_command
 from django.test import TestCase, override_settings
-from io import BytesIO
+from io import BytesIO, StringIO
 from tempfile import TemporaryDirectory
 from PIL import Image
 from main.models import (
@@ -9,6 +10,7 @@ from main.models import (
     Assessment, AssessmentToLO, LOToPO, Student, StudentGrade
 )
 from main.services.calculator import POCalculator
+from main.services.po_matcher import map_course_los_to_pos
 
 
 class POCalculatorTestCase(TestCase):
@@ -59,6 +61,177 @@ class POCalculatorTestCase(TestCase):
         po_scores = POCalculator.calculate_student_po_scores_for_course(self.student, self.course)
         self.assertAlmostEqual(po_scores["PO1"], 85.0, places=1)
         self.assertAlmostEqual(po_scores["PO2"], 82.9, places=1)
+
+
+class CourseOutcomePOMatcherTestCase(TestCase):
+    def setUp(self):
+        self.course = Course.objects.create(code="CSE 450", title="Software Design")
+        po_descriptions = {
+            "PO1": "Mathematics calculus physics and engineering theory.",
+            "PO2": "Analyze formulate and solve engineering problems using models.",
+            "PO3": "Design and implement systems, software, products and prototypes.",
+            "PO4": "Use modern software tools and information technology.",
+            "PO5": "Design experiments collect data and interpret research results.",
+            "PO6": "Work in teams and collaborate across disciplines.",
+            "PO7": "Communicate clearly in oral presentations and written reports.",
+            "PO8": "Continue lifelong learning and monitor new developments.",
+            "PO9": "Practice ethics, moral judgment and professional responsibility.",
+            "PO10": "Manage projects, costs, economics and entrepreneurship.",
+            "PO11": "Consider health, environment, safety and legal requirements.",
+        }
+        self.program_outcomes = {
+            code: ProgramOutcome.objects.create(
+                code=code, title=code, description=description
+            )
+            for code, description in po_descriptions.items()
+        }
+
+    def test_match_weights_are_normalized_and_software_design_maps_to_po3(self):
+        outcome = LearningOutcome.objects.create(
+            course=self.course,
+            code="LO1",
+            description=(
+                "Design and implement a software prototype that satisfies "
+                "system requirements."
+            ),
+        )
+
+        result = map_course_los_to_pos(self.course)
+
+        mappings = LOToPO.objects.filter(learning_outcome=outcome)
+        total_weight = sum(mapping.weight for mapping in mappings)
+        self.assertAlmostEqual(total_weight, 100.0)
+        self.assertIn(outcome.pk, result)
+        po3_mapping = mappings.get(program_outcome=self.program_outcomes["PO3"])
+        self.assertGreater(po3_mapping.weight, 50.0)
+
+    def test_ethics_learning_outcome_maps_deterministically_to_po9(self):
+        outcome = LearningOutcome.objects.create(
+            course=self.course,
+            code="LO1",
+            description=(
+                "Apply ethical principles and professional responsibility "
+                "when designing engineering solutions."
+            ),
+        )
+
+        map_course_los_to_pos(self.course)
+
+        mappings = list(
+            LOToPO.objects.filter(learning_outcome=outcome)
+            .select_related("program_outcome")
+            .order_by("program_outcome__code")
+        )
+        self.assertTrue(mappings)
+        self.assertEqual(
+            max(mappings, key=lambda mapping: mapping.weight).program_outcome.code,
+            "PO9",
+        )
+        self.assertAlmostEqual(sum(mapping.weight for mapping in mappings), 100.0)
+
+    def test_computing_learning_outcomes_are_mapped_to_relevant_pos(self):
+        examples = (
+            ("Implement a machine learning pipeline", {"PO3", "PO4"}),
+            ("Select the right algorithm", {"PO2"}),
+            ("Understand how to improve algorithm performance", {"PO2"}),
+        )
+        outcomes = [
+            LearningOutcome.objects.create(
+                course=self.course,
+                code=f"LO{index}",
+                description=description,
+            )
+            for index, (description, _) in enumerate(examples, start=1)
+        ]
+
+        map_course_los_to_pos(self.course)
+
+        for outcome, (_, expected_codes) in zip(outcomes, examples):
+            mappings = list(
+                LOToPO.objects.filter(learning_outcome=outcome)
+                .select_related("program_outcome")
+            )
+            mapped_codes = {mapping.program_outcome.code for mapping in mappings}
+            self.assertTrue(mapped_codes)
+            self.assertLessEqual(len(mapped_codes), 2)
+            self.assertTrue(mapped_codes & expected_codes)
+            self.assertAlmostEqual(
+                sum(mapping.weight for mapping in mappings),
+                100.0,
+            )
+
+    def test_zero_similarity_falls_back_to_equal_technical_po_weights(self):
+        outcome = LearningOutcome.objects.create(
+            course=self.course,
+            code="LO1",
+            description="Xylophone quasar",
+        )
+
+        map_course_los_to_pos(self.course)
+
+        mappings = list(
+            LOToPO.objects.filter(learning_outcome=outcome)
+            .select_related("program_outcome")
+        )
+        self.assertEqual(
+            {mapping.program_outcome.code for mapping in mappings},
+            {"PO1", "PO2", "PO3"},
+        )
+        self.assertTrue(all(abs(mapping.weight - 100 / 3) < 0.0001 for mapping in mappings))
+        self.assertAlmostEqual(sum(mapping.weight for mapping in mappings), 100.0)
+
+    def test_recalculate_command_refreshes_existing_course_outcomes(self):
+        outcome = LearningOutcome.objects.create(
+            course=self.course,
+            code="LO1",
+            description="Select the appropriate algorithm.",
+        )
+        LOToPO.objects.create(
+            learning_outcome=outcome,
+            program_outcome=self.program_outcomes["PO1"],
+            weight=100.0,
+        )
+
+        call_command("recalculate_lo_po_weights", stdout=StringIO())
+
+        mappings = list(
+            LOToPO.objects.filter(learning_outcome=outcome)
+            .select_related("program_outcome")
+        )
+        self.assertTrue(mappings)
+        self.assertEqual(
+            max(mappings, key=lambda mapping: mapping.weight).program_outcome.code,
+            "PO2",
+        )
+        self.assertAlmostEqual(sum(mapping.weight for mapping in mappings), 100.0)
+
+    def test_recalculation_replaces_previous_generated_weights(self):
+        outcome = LearningOutcome.objects.create(
+            course=self.course,
+            code="LO1",
+            description="Design and implement software prototypes.",
+        )
+        LOToPO.objects.create(
+            learning_outcome=outcome,
+            program_outcome=self.program_outcomes["PO1"],
+            weight=100,
+        )
+
+        map_course_los_to_pos(self.course)
+        first_result = list(
+            LOToPO.objects.filter(learning_outcome=outcome)
+            .order_by("program_outcome__code")
+            .values_list("program_outcome__code", "weight")
+        )
+        map_course_los_to_pos(self.course)
+        second_result = list(
+            LOToPO.objects.filter(learning_outcome=outcome)
+            .order_by("program_outcome__code")
+            .values_list("program_outcome__code", "weight")
+        )
+
+        self.assertEqual(first_result, second_result)
+        self.assertNotIn(("PO1", 100.0), second_result)
 
 
 class UserRoleTestCase(TestCase):
@@ -538,6 +711,72 @@ class BolognaScraperTestCase(TestCase):
         self.assertEqual(Course.objects.filter(code="CSE311").count(), 1)
         self.assertEqual(course.learning_outcomes.count(), 2)
         self.assertEqual(course.assessments.count(), 3)
+
+    def test_extracts_and_syncs_outcomes_from_course_learning_outcomes_section(self):
+        mock_html = """
+        <html>
+          <table id="grdDers">
+            <tr><th>Course Unit Code</th><th>Course Unit Title</th></tr>
+            <tr><td>CSE 450</td><td>Software Design</td></tr>
+          </table>
+          <section>
+            <h2>Course Learning Outcomes: Upon the successful completion of this
+            course, students will be able to:</h2>
+            <ul>
+              <li>1. Design and implement reliable software prototypes.</li>
+              <li>2)   Analyze system requirements and model solutions.</li>
+            </ul>
+          </section>
+        </html>
+        """
+
+        parsed = BolognaScraperService.parse_html_content(
+            BeautifulSoup(mock_html, "html.parser")
+        )
+
+        self.assertTrue(parsed["success"])
+        self.assertEqual(
+            parsed["data"]["learning_outcomes"],
+            [
+                "Design and implement reliable software prototypes.",
+                "Analyze system requirements and model solutions.",
+            ],
+        )
+        course = BolognaScraperService.sync_to_database(parsed)
+        self.assertEqual(
+            list(
+                course.learning_outcomes.order_by("code").values_list(
+                    "description", flat=True
+                )
+            ),
+            parsed["data"]["learning_outcomes"],
+        )
+
+    def test_course_sync_triggers_po_weight_mapping(self):
+        program_outcome = ProgramOutcome.objects.create(
+            code="PO3",
+            title="System and Product Design",
+            description="Design and implement software systems and prototypes.",
+        )
+        scraped_result = {
+            "success": True,
+            "error": None,
+            "data": {
+                "course_code": "CSE450",
+                "course_title": "Software Design",
+                "learning_outcomes": [
+                    "Design and implement a software prototype."
+                ],
+                "assessments": [],
+            },
+        }
+
+        course = BolognaScraperService.sync_to_database(scraped_result)
+
+        outcome = course.learning_outcomes.get(code="LO1")
+        mapping = LOToPO.objects.get(learning_outcome=outcome)
+        self.assertEqual(mapping.program_outcome, program_outcome)
+        self.assertAlmostEqual(mapping.weight, 100.0)
 import openpyxl
 from io import BytesIO
 from django.test import TestCase
@@ -1234,6 +1473,27 @@ class HeadDashboardViewTestCase(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, "/?next=/faculty-head/")
+
+    def test_head_can_manually_recalculate_and_review_course_mappings(self):
+        self.outcome.description = (
+            "Design and implement software prototypes for engineering systems."
+        )
+        self.outcome.save(update_fields=["description"])
+        self.client.force_login(self.head)
+
+        response = self.client.post(
+            reverse("recalculate_course_po_mappings", args=[self.course.pk])
+        )
+
+        self.assertRedirects(response, reverse("head_dashboard"))
+        mappings = LOToPO.objects.filter(learning_outcome=self.outcome)
+        self.assertTrue(mappings.exists())
+        self.assertAlmostEqual(
+            sum(mapping.weight for mapping in mappings), 100.0
+        )
+        dashboard_response = self.client.get(reverse("head_dashboard"))
+        self.assertEqual(dashboard_response.status_code, 200)
+        self.assertContains(dashboard_response, "Recalculate LO-PO Weights")
 
 
 class AuthenticationViewTestCase(TestCase):
