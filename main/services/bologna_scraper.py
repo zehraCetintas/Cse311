@@ -110,7 +110,8 @@ class BolognaScraperService:
 
     @staticmethod
     def _is_excluded_course_code(value: str) -> bool:
-        return str(value).strip().upper().startswith("ACU")
+        code = str(value).strip().upper()
+        return code.startswith(("ACU", "MED", "EMED"))
 
     @staticmethod
     def is_component_assessment(name: str) -> bool:
@@ -299,7 +300,11 @@ class BolognaScraperService:
         for cell in soup.find_all(["td", "th", "h1", "h2", "span"]):
             text = cell.get_text(" ", strip=True)
             if not data["course_code"]:
-                code_match = re.search(r"\b([A-Z]{3,4}\s*\d{3})\b", text)
+                code_match = re.search(
+                    r"\b([A-Z][A-Z0-9]{1,9}\s*\d{2,4})\b",
+                    text,
+                    re.IGNORECASE,
+                )
                 if code_match:
                     data["course_code"] = re.sub(r"\s+", "", code_match.group(1))
 
@@ -496,7 +501,7 @@ class BolognaScraperService:
         )
         if BolognaScraperService._is_excluded_course_code(data["course_code"]):
             return BolognaScraperService._failure(
-                "Courses with codes starting with ACU are excluded."
+                "Courses with codes starting with ACU, MED, or EMED are excluded."
             )
         return {"success": True, "error": None, "data": data}
 
@@ -522,7 +527,8 @@ class BolognaScraperService:
         ]
         if not courses_data or any(not course_data for course_data in courses_data):
             raise ValueError(
-                "Cannot sync empty data or courses with codes starting with ACU."
+                "Cannot sync empty data or courses with codes starting with "
+                "ACU, MED, or EMED."
             )
 
         synced_courses = []
