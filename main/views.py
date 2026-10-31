@@ -661,6 +661,12 @@ def head_dashboard(request):
         .prefetch_related("assessments", "assessments__student_grades")
         .order_by("code")
     )
+    search_query = request.GET.get("q", "").strip()
+    if search_query:
+        courses = [
+            course for course in courses
+            if search_query.lower() in course.code.lower() or search_query.lower() in course.title.lower()
+        ]
     course_audit = []
     for course in courses:
         assessments = BolognaScraperService.deduplicate_assessments(
