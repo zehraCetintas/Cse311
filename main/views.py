@@ -14,7 +14,7 @@ from django.views.decorators.http import require_POST
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.http import HttpResponseForbidden, HttpResponseNotAllowed
+from django.http import HttpResponse, HttpResponseForbidden, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from openpyxl.utils.exceptions import InvalidFileException
@@ -34,6 +34,7 @@ from main.services.calculator import POCalculator
 from main.services.grade_importer import GradeImporterService
 from main.services import analytics as analytics_service
 from main.services.po_matcher import map_course_los_to_pos
+from main.services.report_generator import CourseReportService
 
 def _dashboard_url_for_user(user):
     if user.role == User.Role.HEAD_OF_FACULTY or user.is_superuser:
@@ -481,6 +482,27 @@ def upload_grades(request):
             f"{result['created']} created, {result['updated']} updated.",
         )
     return redirect(_dashboard_redirect(assessment.course_id))
+
+
+@login_required
+def download_course_report(request, course_id):
+    course = get_object_or_404(Course, pk=course_id)
+    is_head = (
+        request.user.role == User.Role.HEAD_OF_FACULTY or request.user.is_superuser
+    )
+    if not is_head and course.instructor_id != request.user.pk:
+        return HttpResponseForbidden(
+            "Only the course instructor or a head of faculty can download this report."
+        )
+
+    report_file = CourseReportService.export_excel(course)
+    response = HttpResponse(
+        report_file.getvalue(),
+        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    filename = f"{course.code.replace(' ', '_')}_report.xlsx"
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
 
 
 @login_required

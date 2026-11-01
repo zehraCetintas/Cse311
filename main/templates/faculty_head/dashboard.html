@@ -176,6 +176,7 @@
                         {% csrf_token %}
                         <button class="btn btn-sm btn-outline-primary" type="submit">Recalculate LO-PO Weights</button>
                       </form>
+                      <a class="btn btn-sm btn-outline-success mt-2" href="{% url 'download_course_report' item.course.pk %}">Download report (Excel)</a>
                     </div>
                   </details>
                 </td>

@@ -1,4 +1,4 @@
-from io import StringIO
+from io import BytesIO, StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -6,10 +6,11 @@ import openpyxl
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
+from django.urls import reverse
 
 from main.models import (
     ProgramOutcome, Course, LearningOutcome,
-    Assessment, AssessmentToLO, LOToPO, Student, StudentGrade
+    Assessment, AssessmentToLO, LOToPO, Student, StudentGrade, User
 )
 from main.services.report_generator import CourseReportService
 
@@ -117,3 +118,62 @@ class CourseReportTestCase(TestCase):
     def test_management_command_unknown_course(self):
         with self.assertRaises(CommandError):
             call_command("export_course_report", "XXX 999", stdout=StringIO())
+
+
+class CourseReportDownloadViewTestCase(TestCase):
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username="instructor", password="test-password", role=User.Role.INSTRUCTOR
+        )
+        self.other_instructor = User.objects.create_user(
+            username="other-instructor", password="test-password", role=User.Role.INSTRUCTOR
+        )
+        self.head = User.objects.create_user(
+            username="head", password="test-password", role=User.Role.HEAD_OF_FACULTY
+        )
+        self.student = User.objects.create_user(
+            username="student", password="test-password", role=User.Role.STUDENT
+        )
+        self.course = Course.objects.create(
+            code="CSE 311", title="Software", instructor=self.instructor
+        )
+        self.url = reverse("download_course_report", args=[self.course.pk])
+
+    def assert_excel_download(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertEqual(
+            response["Content-Disposition"], 'attachment; filename="CSE_311_report.xlsx"'
+        )
+        workbook = openpyxl.load_workbook(BytesIO(response.content))
+        self.assertEqual(workbook.sheetnames, ["Summary", "Students", "At-Risk Students"])
+
+    def test_course_instructor_can_download_report(self):
+        self.client.force_login(self.instructor)
+        self.assert_excel_download(self.client.get(self.url))
+
+    def test_head_of_faculty_can_download_any_report(self):
+        self.client.force_login(self.head)
+        self.assert_excel_download(self.client.get(self.url))
+
+    def test_other_instructor_and_student_are_forbidden(self):
+        for user in (self.other_instructor, self.student):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(self.url).status_code, 403)
+
+    def test_anonymous_user_is_redirected_to_login(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, 302)
+
+    def test_unknown_course_returns_404(self):
+        self.client.force_login(self.head)
+        response = self.client.get(reverse("download_course_report", args=[9999]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_instructor_dashboard_shows_download_button(self):
+        self.client.force_login(self.instructor)
+        response = self.client.get(reverse("instructor_dashboard"))
+        self.assertContains(response, self.url)

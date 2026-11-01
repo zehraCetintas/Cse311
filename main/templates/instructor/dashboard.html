@@ -46,6 +46,7 @@
             <h2 class="h4 mb-1">{{ selected_course.code }} · {{ selected_course.title }}</h2>
             <span class="text-secondary">Course overview</span>
           </div>
+          <a class="btn btn-outline-success" href="{% url 'download_course_report' selected_course.pk %}">Download report (Excel)</a>
           <span class="badge {% if assessment_weight_is_valid %}text-bg-success{% else %}text-bg-warning{% endif %} fs-6">
             Assessment total: {{ total_assessment_weight|floatformat:2 }}%
             {% if assessment_weight_is_valid %} · 100% complete{% else %} · should equal 100%{% endif %}
