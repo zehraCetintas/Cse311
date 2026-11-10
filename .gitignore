@@ -7,4 +7,6 @@ db.sqlite3
 __pycache__/
 # VS Code settings
 .vscode/
-.env
+.env# Test coverage
+.coverage
+htmlcov/

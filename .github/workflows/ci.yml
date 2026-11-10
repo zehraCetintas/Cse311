@@ -1,6 +1,6 @@
 # CI: runs on every push and pull request to main/development.
-# Installs dependencies, checks the Django project, makes sure no model
-# change is missing a migration, and runs the test suite.
+# Lints the code, checks the Django project, makes sure no model
+# change is missing a migration, and runs the test suite with coverage.
 name: CI
 
 on:
@@ -28,6 +28,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+          pip install ruff==0.17.4 coverage==7.17.2
+
+      - name: Lint (ruff)
+        run: ruff check . --output-format github
 
       - name: Django system check
         run: python manage.py check
@@ -35,5 +39,22 @@ jobs:
       - name: Check for missing migrations
         run: python manage.py makemigrations --check --dry-run
 
-      - name: Run tests
-        run: python manage.py test --verbosity 2
+      - name: Run tests with coverage
+        run: coverage run manage.py test --verbosity 2
+
+      - name: Coverage report
+        if: always()
+        run: |
+          coverage report
+          echo "## Test coverage" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          coverage report >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          coverage html
+
+      - name: Upload coverage HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov/

@@ -1,5 +1,9 @@
 # Program Outcome Tracker
 
+[![CI](https://github.com/zehraCetintas/Cse311/actions/workflows/ci.yml/badge.svg?branch=development)](https://github.com/zehraCetintas/Cse311/actions/workflows/ci.yml)
+![Python 3.13](https://img.shields.io/badge/python-3.13-blue)
+![Django 6.1](https://img.shields.io/badge/django-6.1-green)
+
 A web-based system to manage and maintain **Program Outcome (PO) scores** of each student, built for Acıbadem University Computer Engineering (CSE 311 Software & CSE 321 Data Systems team project, Fall 2026).
 
 Instructors enter assessment grades. The system turns them into Learning Outcome (LO) scores and then into Program Outcome (PO) scores, using the weights defined for each course:
@@ -11,18 +15,23 @@ score = Σ (weight × score) ÷ Σ weights
 
 ## Features
 
-- **Roles:** department head, instructor, student
+- **Role-based dashboards** for the head of faculty, instructors and students, with login, registration and profile pictures
 - **11 official Program Outcomes** of the department, loaded with one command
 - **PO calculation engine:** assessment → LO → PO weighted averages
 - **Bologna scraper:** imports courses, learning outcomes and assessment weights from Acıbadem OBS
+- **Automatic LO-PO matching** with TF-IDF text similarity
+- **PO analytics:** per-course breakdown of each PO and warnings for POs no course covers
 - **Bulk grade import** from Excel (.xlsx), all-or-nothing in a single transaction
+- **Course outcome report** exported as Excel (LO/PO scores, achievement rates, at-risk students)
 - **Demo data generator** for development and demos
 
 ## Tech stack
 
 - Python 3.13, Django 6.1
 - SQLite (development)
-- openpyxl, requests, BeautifulSoup
+- Bootstrap 5 (UI)
+- openpyxl, requests, BeautifulSoup, scikit-learn
+- GitHub Actions CI with ruff and coverage
 
 ## Getting started
 
@@ -85,6 +94,23 @@ git push -u origin feature/my-feature
 ```
 
 Then open a pull request into `development` on GitHub and ask a teammate to review it.
+
+## Code quality
+
+Every push and pull request runs the [CI workflow](.github/workflows/ci.yml). A pull request should only be merged when CI is green. CI runs:
+
+1. **Lint** with [ruff](https://docs.astral.sh/ruff/): undefined names, unused or duplicate imports and variables (settings in `ruff.toml`)
+2. **Django system check** and a check that no model change is missing a migration
+3. **Tests with coverage**: the coverage table is shown on the run's summary page, and the full HTML report can be downloaded as the `coverage-html` artifact
+
+To run the same checks locally before pushing:
+
+```bash
+pip install ruff coverage
+ruff check .
+coverage run manage.py test
+coverage report
+```
 
 ## Team
 
