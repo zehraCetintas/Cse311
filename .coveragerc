@@ -1,0 +1,15 @@
+# Test coverage settings, used by CI and locally with
+# `coverage run manage.py test` followed by `coverage report`
+[run]
+source = main, cse311_project
+omit =
+    */migrations/*
+    */tests.py
+    */test_*.py
+    manage.py
+    cse311_project/asgi.py
+    cse311_project/wsgi.py
+
+[report]
+show_missing = True
+skip_covered = False

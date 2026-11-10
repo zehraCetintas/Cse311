@@ -1,4 +1,4 @@
-from main.models import Student, Course, ProgramOutcome, LearningOutcome, AssessmentToLO, LOToPO, StudentGrade
+from main.models import Student, Course, ProgramOutcome, AssessmentToLO, LOToPO, StudentGrade
 
 class POCalculator:
     @staticmethod
