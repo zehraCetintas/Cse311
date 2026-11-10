@@ -64,6 +64,8 @@ Then open http://127.0.0.1:8000/.
 | `python manage.py load_program_outcomes` | Loads the 11 official Program Outcomes |
 | `python manage.py seed_demo_data` | Creates demo courses, users, students and grades |
 | `python manage.py scraper_course <url> [--course-code "CSE 311"]` | Imports a course syllabus from an Acıbadem Bologna (OBS) URL |
+| `python manage.py recalculate_lo_po_weights` | Recalculates LO-PO weights (TF-IDF matcher) for all courses |
+| `python manage.py export_course_report "CSE 311" [--threshold 60] [--output report.xlsx]` | Exports a course outcome report as Excel (also downloadable from the instructor and head of faculty dashboards) |
 | `python manage.py test` | Runs the test suite |
 
 ## Working on the project
