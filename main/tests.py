@@ -256,7 +256,6 @@ from bs4 import BeautifulSoup
 from django.test import TestCase
 from unittest.mock import Mock, patch
 from main.services.bologna_scraper import BolognaScraperService
-from main.models import Course, LearningOutcome, Assessment
 
 
 class BolognaScraperTestCase(TestCase):
@@ -778,9 +777,7 @@ class BolognaScraperTestCase(TestCase):
         self.assertEqual(mapping.program_outcome, program_outcome)
         self.assertAlmostEqual(mapping.weight, 100.0)
 import openpyxl
-from io import BytesIO
 from django.test import TestCase
-from main.models import Course, Assessment, Student, StudentGrade
 from main.services.grade_importer import GradeImporterService
 
 
@@ -888,9 +885,7 @@ class GradeImporterTestCase(TestCase):
         self.assertEqual(StudentGrade.objects.filter(assessment=self.midterm).count(), 0)
 
 
-from io import BytesIO
 
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.urls import reverse
 
 

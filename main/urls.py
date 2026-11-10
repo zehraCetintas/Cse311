@@ -43,5 +43,10 @@ urlpatterns = [
         name="recalculate_course_po_mappings",
     ),
     path("instructor/upload-grades/", views.upload_grades, name="upload_grades"),
+    path(
+        "course/<int:course_id>/report/",
+        views.download_course_report,
+        name="download_course_report",
+    ),
     path("logout/", LogoutView.as_view(next_page="login"), name="logout"),
 ]
