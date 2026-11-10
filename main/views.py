@@ -12,9 +12,9 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login
 from django.views.decorators.http import require_POST
 from django.core.validators import validate_email
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.http import HttpResponseForbidden, HttpResponseNotAllowed
+from django.http import HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from openpyxl.utils.exceptions import InvalidFileException
@@ -264,7 +264,7 @@ def instructor_required(view):
     @wraps(view)
     def wrapped_view(request, *args, **kwargs):
         if request.user.role != User.Role.INSTRUCTOR:
-            return HttpResponseForbidden(
+            raise PermissionDenied(
                 "Only instructors can access the instructor workspace."
             )
         return view(request, *args, **kwargs)
@@ -339,7 +339,7 @@ def import_bologna_course(request):
         request.user.role != User.Role.HEAD_OF_FACULTY
         and not request.user.is_superuser
     ):
-        return HttpResponseForbidden(
+        raise PermissionDenied(
             "Only heads of faculty can import Bologna courses."
         )
 
@@ -398,7 +398,7 @@ def assign_course_instructor(request):
         request.user.role != User.Role.HEAD_OF_FACULTY
         and not request.user.is_superuser
     ):
-        return HttpResponseForbidden(
+        raise PermissionDenied(
             "Only heads of faculty can assign instructors to courses."
         )
 
@@ -511,7 +511,7 @@ def student_dashboard(request):
             )
         student = get_object_or_404(Student, pk=student_id)
     else:
-        return HttpResponseForbidden(
+        raise PermissionDenied(
             "Only students, instructors, and heads of faculty can access this page."
         )
 
@@ -604,7 +604,7 @@ def student_dashboard(request):
 @login_required
 def student_program_outcomes(request):
     if request.user.role != User.Role.STUDENT:
-        return HttpResponseForbidden(
+        raise PermissionDenied(
             "Only students can access the program outcome list."
         )
 
@@ -651,7 +651,7 @@ def head_dashboard(request):
         request.user.role != User.Role.HEAD_OF_FACULTY
         and not request.user.is_superuser
     ):
-        return HttpResponseForbidden(
+        raise PermissionDenied(
             "Only heads of faculty can access this dashboard."
         )
 
@@ -828,7 +828,7 @@ def recalculate_course_po_mappings(request, course_id):
         request.user.role != User.Role.HEAD_OF_FACULTY
         and not request.user.is_superuser
     ):
-        return HttpResponseForbidden(
+        raise PermissionDenied(
             "Only heads of faculty can recalculate course outcome mappings."
         )
 
@@ -849,7 +849,7 @@ def po_detail(request, po_code):
         request.user.role != User.Role.HEAD_OF_FACULTY
         and not request.user.is_superuser
     ):
-        return HttpResponseForbidden("Only heads of faculty can access this page.")
+        raise PermissionDenied("Only heads of faculty can access this page.")
 
     outcome = get_object_or_404(ProgramOutcome, code=po_code)
     breakdown = analytics_service.po_course_breakdown(po_code)

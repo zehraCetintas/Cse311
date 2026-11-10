@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+
+{% block title %}{% block error_title %}Error{% endblock %}{% endblock %}
+
+{% block content %}
+  <section class="card shadow-sm mx-auto my-5 text-center" style="max-width: 560px">
+    <div class="card-body p-5">
+      <i class="fa-solid {% block error_icon %}fa-circle-exclamation{% endblock %} fa-3x text-primary mb-3" aria-hidden="true"></i>
+      <p class="display-4 fw-bold text-primary mb-1">{% block error_code %}{% endblock %}</p>
+      <h1 class="h4 mb-3">{% block error_heading %}{% endblock %}</h1>
+      <p class="text-secondary mb-4">{% block error_message %}{% endblock %}</p>
+      <a class="btn btn-primary"
+         href="{% if not request.user.is_authenticated %}{% url 'login' %}{% elif request.user.role == 'HEAD' or request.user.is_superuser %}{% url 'head_dashboard' %}{% elif request.user.role == 'INSTRUCTOR' %}{% url 'instructor_dashboard' %}{% elif request.user.role == 'STUDENT' %}{% url 'student_dashboard' %}{% else %}{% url 'login' %}{% endif %}">
+        <i class="fa-solid fa-house me-1" aria-hidden="true"></i>
+        {% if request.user.is_authenticated %}Back to your dashboard{% else %}Go to login{% endif %}
+      </a>
+    </div>
+  </section>
+{% endblock %}
