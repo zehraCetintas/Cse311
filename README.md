@@ -42,6 +42,17 @@ python manage.py runserver
 
 Then open http://127.0.0.1:8000/.
 
+## Configuration
+
+Deployment-specific settings are read from environment variables, or from a `.env` file in the project root (ignored by git). Copy `.env.example` to `.env` to start. No configuration is needed for local development.
+
+| Variable | Default | Description |
+|---|---|---|
+| `DJANGO_DEBUG` | `true` | Set to `false` on any server other people can reach |
+| `DJANGO_SECRET_KEY` | development-only key | **Required when `DJANGO_DEBUG=false`**; the project refuses to start without it |
+| `DJANGO_ALLOWED_HOSTS` | empty | Comma-separated host names, e.g. `example.com,www.example.com` |
+| `DJANGO_CSRF_TRUSTED_ORIGINS` | empty | Comma-separated origins, e.g. `https://example.com` |
+
 ## Demo data
 
 `python manage.py seed_demo_data` creates the 11 POs, 4 courses (CSE 211, CSE 311, CSE 321, MAT 241) with learning outcomes, assessments and PO mappings, a department head, 2 instructors, 40 students and their grades.
