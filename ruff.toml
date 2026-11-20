@@ -1,0 +1,8 @@
+# Ruff linter settings, used by CI and locally with `ruff check .`
+# Only rules that point at real problems: syntax errors, undefined names,
+# unused or duplicate imports and variables (pyflakes).
+target-version = "py313"
+extend-exclude = ["venv", "*/migrations/*"]
+
+[lint]
+select = ["E9", "F"]

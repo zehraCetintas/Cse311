@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 import requests
@@ -6,6 +7,7 @@ from bs4 import BeautifulSoup
 from django.db import transaction
 
 from main.models import Assessment, Course, LearningOutcome
+from main.services.po_matcher import map_course_los_to_pos
 
 
 class BolognaScraperService:
@@ -60,15 +62,25 @@ class BolognaScraperService:
                         course_result = BolognaScraperService.parse_html_content(
                             BeautifulSoup(detail_response.content, "html.parser")
                         )
+                        if not course_result["success"]:
+                            continue
                         data = course_result["data"]
                         data["course_code"] = (
                             data["course_code"] or listed_course["course_code"]
                         )
+                        if BolognaScraperService._is_excluded_course_code(
+                            data["course_code"]
+                        ):
+                            continue
                         data["course_title"] = (
                             data["course_title"] or listed_course["course_title"]
                         )
                         courses.append(data)
 
+                    if not courses:
+                        return BolognaScraperService._failure(
+                            "No eligible courses were found in the program listing."
+                        )
                     if course_code:
                         return {
                             "success": True,
@@ -96,6 +108,112 @@ class BolognaScraperService:
     @staticmethod
     def _normalize_course_code(value: str) -> str:
         return re.sub(r"\s+", "", value).casefold()
+
+    @staticmethod
+    def _is_excluded_course_code(value: str) -> bool:
+        code = str(value).strip().upper()
+        return code.startswith(("ACU", "MED", "EMED"))
+
+    @staticmethod
+    def is_component_assessment(name: str) -> bool:
+        normalized_name = BolognaScraperService._normalize_assessment_name(name)
+        if re.search(r"\b(total|toplam)\b", normalized_name):
+            return False
+        return not any(
+            summary_label in normalized_name
+            for summary_label in (
+                "yariyil ici calismalari",
+                "yil ici",
+                "yariyil sonu calismalarinin katkisi",
+            )
+        )
+
+    @staticmethod
+    def _normalize_assessment_name(name: str) -> str:
+        normalized_name = "".join(
+            character
+            for character in unicodedata.normalize("NFD", str(name).casefold())
+            if unicodedata.category(character) != "Mn"
+        ).replace("ı", "i")
+        return re.sub(r"\s+", " ", normalized_name).strip()
+
+    @staticmethod
+    def assessment_identity(name: str) -> str:
+        normalized_name = BolognaScraperService._normalize_assessment_name(name)
+        aliases = {
+            "ara sinav": "midterm",
+            "final": "final exam",
+            "midterm exam": "midterm",
+            "final sinavi": "final exam",
+            "yariyil sonu sinavi": "final exam",
+            "odev": "assignment",
+            "homework": "assignment",
+            "proje": "project",
+            "kisa sinav": "quiz",
+            "sunum": "presentation",
+            "laboratuvar uygulamasi": "laboratory practice",
+            "proje/odev/seminer": "project/assignment/seminar",
+            "notsuz harf degerlendirme": "letter grading",
+        }
+        return aliases.get(normalized_name, normalized_name)
+
+    @staticmethod
+    def _clean_learning_outcome(value: str) -> str:
+        text = re.sub(r"^\s*(?:\d+[.)]|[•*-])\s*", "", value)
+        return re.sub(r"\s+", " ", text).strip()
+
+    @staticmethod
+    def _extract_course_learning_outcomes(soup: BeautifulSoup) -> list[str]:
+        heading_pattern = re.compile(
+            r"course\s+learning\s+outcomes?.*upon\s+the\s+successful\s+completion",
+            re.IGNORECASE | re.DOTALL,
+        )
+        for text_node in soup.find_all(string=heading_pattern):
+            container = text_node.parent
+            for _ in range(5):
+                if container is None:
+                    break
+                items = container.find_all(["li"])
+                if items:
+                    outcomes = []
+                    for item in items:
+                        outcome = BolognaScraperService._clean_learning_outcome(
+                            item.get_text(" ", strip=True)
+                        )
+                        if outcome and outcome not in outcomes:
+                            outcomes.append(outcome)
+                    if outcomes:
+                        return outcomes
+                container = container.parent
+        return []
+
+    @staticmethod
+    def deduplicate_assessments(assessments):
+        """Keep one representative when Bologna lists bilingual duplicate rows."""
+        unique = {}
+        for assessment in assessments:
+            name = (
+                assessment["name"]
+                if isinstance(assessment, dict)
+                else assessment.name
+            )
+            identity = BolognaScraperService.assessment_identity(name)
+            existing = unique.get(identity)
+            preferred_name = (
+                BolognaScraperService._normalize_assessment_name(name) == identity
+            )
+            existing_preferred = (
+                existing is not None
+                and BolognaScraperService._normalize_assessment_name(
+                    existing["name"]
+                    if isinstance(existing, dict)
+                    else existing.name
+                )
+                == identity
+            )
+            if existing is None or (preferred_name and not existing_preferred):
+                unique[identity] = assessment
+        return list(unique.values())
 
     @staticmethod
     def _find_courses(
@@ -128,6 +246,8 @@ class BolognaScraperService:
                 continue
 
             code = re.sub(r"\s+", "", code_match.group(1))
+            if BolognaScraperService._is_excluded_course_code(code):
+                continue
             if wanted_code and (
                 BolognaScraperService._normalize_course_code(code) != wanted_code
             ):
@@ -184,7 +304,9 @@ class BolognaScraperService:
         data = {
             "course_code": "",
             "course_title": "",
-            "learning_outcomes": [],
+            "learning_outcomes": BolognaScraperService._extract_course_learning_outcomes(
+                soup
+            ),
             "assessments": [],
         }
 
@@ -211,7 +333,11 @@ class BolognaScraperService:
         for cell in soup.find_all(["td", "th", "h1", "h2", "span"]):
             text = cell.get_text(" ", strip=True)
             if not data["course_code"]:
-                code_match = re.search(r"\b([A-Z]{3,4}\s*\d{3})\b", text)
+                code_match = re.search(
+                    r"\b([A-Z][A-Z0-9]{1,9}\s*\d{2,4})\b",
+                    text,
+                    re.IGNORECASE,
+                )
                 if code_match:
                     data["course_code"] = re.sub(r"\s+", "", code_match.group(1))
 
@@ -266,7 +392,7 @@ class BolognaScraperService:
                     candidates = cells
                 for cell in candidates:
                     text = cell.get_text(" ", strip=True)
-                    clean_text = re.sub(r"^\d+[\.\)]\s*", "", text)
+                    clean_text = BolognaScraperService._clean_learning_outcome(text)
                     if (
                         clean_text
                         and not clean_text.isdigit()
@@ -357,7 +483,10 @@ class BolognaScraperService:
                     cells[name_index] if name_index < len(cells) else cells[0],
                 )
                 name = name_cell.get_text(" ", strip=True)
-                if not name or name.casefold() in {"total", "toplam"}:
+                if (
+                    not name
+                    or not BolognaScraperService.is_component_assessment(name)
+                ):
                     continue
 
                 contribution_cell = next(
@@ -400,6 +529,13 @@ class BolognaScraperService:
                             assessment["quantity"] = int(quantity_match.group())
                 data["assessments"].append(assessment)
 
+        data["assessments"] = BolognaScraperService.deduplicate_assessments(
+            data["assessments"]
+        )
+        if BolognaScraperService._is_excluded_course_code(data["course_code"]):
+            return BolognaScraperService._failure(
+                "Courses with codes starting with ACU, MED, or EMED are excluded."
+            )
         return {"success": True, "error": None, "data": data}
 
     @staticmethod
@@ -414,8 +550,19 @@ class BolognaScraperService:
             if batch
             else [scraped_data.get("data")]
         )
+        courses_data = [
+            course_data
+            for course_data in courses_data
+            if course_data
+            and not BolognaScraperService._is_excluded_course_code(
+                course_data.get("course_code", "")
+            )
+        ]
         if not courses_data or any(not course_data for course_data in courses_data):
-            raise ValueError("Cannot sync empty scraped course data.")
+            raise ValueError(
+                "Cannot sync empty data or courses with codes starting with "
+                "ACU, MED, or EMED."
+            )
 
         synced_courses = []
         with transaction.atomic():
@@ -444,12 +591,24 @@ class BolognaScraperService:
                         defaults={"description": lo_desc},
                     )
 
-                for assessment in data.get("assessments", []):
+                map_course_los_to_pos(course)
+
+                assessments = BolognaScraperService.deduplicate_assessments(
+                    data.get("assessments", [])
+                )
+                for assessment in assessments:
+                    if not BolognaScraperService.is_component_assessment(
+                        assessment["name"]
+                    ):
+                        continue
                     Assessment.objects.update_or_create(
                         course=course,
                         name=assessment["name"],
                         defaults={"weight": assessment["weight"]},
                     )
+                from main.services.calculator import ensure_default_assessment_lo_mappings
+
+                ensure_default_assessment_lo_mappings(course)
                 synced_courses.append(course)
 
         return synced_courses if batch else synced_courses[0]

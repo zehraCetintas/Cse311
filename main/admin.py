@@ -54,8 +54,8 @@ class LOToPOAdmin(admin.ModelAdmin):
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ('student_number', 'first_name', 'last_name')
-    search_fields = ('student_number', 'first_name', 'last_name')
+    list_display = ('student_number', 'first_name', 'last_name', 'faculty', 'department')
+    search_fields = ('student_number', 'first_name', 'last_name', 'faculty', 'department')
 
 
 @admin.register(StudentGrade)

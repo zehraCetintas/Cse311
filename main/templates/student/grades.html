@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Grades{% endblock %}
+{% block content %}
+<h1 class="h2 mb-4">Grades</h1>
+{% for row in grade_courses %}
+  <section class="card shadow-sm mb-4">
+    <div class="card-header bg-white"><h2 class="h5 mb-1">{{ row.course.code }} · {{ row.course.title }}</h2><div>Instructor: {% if row.course.instructor %}{{ row.course.instructor.get_full_name|default:row.course.instructor.username }}{% else %}-{% endif %}</div></div>
+    <div class="card-body">
+      <div class="table-responsive"><table class="table"><thead><tr><th>Assessment</th><th>Weight</th><th>Score</th></tr></thead><tbody>
+      {% for assessment, score in row.assessments %}<tr><td>{{ assessment.name }}</td><td>{{ assessment.weight|floatformat:2 }}%</td><td>{% if score is None %}-{% else %}{{ score }}{% endif %}</td></tr>{% empty %}<tr><td colspan="3">No assessments available from the course data.</td></tr>{% endfor %}
+      </tbody></table></div>
+      <p class="small text-secondary">Assessment scores are displayed as entered.</p>
+      <h3 class="h6">LO contributions</h3>{% if not row.all_assessments_graded %}<span class="text-secondary">Available when all assessment scores are entered.</span>{% else %}{% for code, score in row.lo_scores.items %}<span class="badge text-bg-primary me-1">{{ code }}: {% if score is None %}-{% else %}{{ score|floatformat:2 }}%{% endif %}</span>{% empty %}<span class="text-secondary">No LO mappings</span>{% endfor %}{% endif %}
+      <h3 class="h6 mt-3">PO contributions</h3>{% if not row.all_assessments_graded %}<span class="text-secondary">Available when all assessment scores are entered.</span>{% else %}{% for code, score in row.po_scores.items %}<span class="badge text-bg-info me-1">{{ code }}: {{ score|floatformat:2 }}%</span>{% empty %}<span class="text-secondary">No PO mappings</span>{% endfor %}{% endif %}
+    </div>
+  </section>
+{% empty %}<p class="text-secondary">Enroll in a course to see its grades.</p>{% endfor %}
+{% endblock %}
