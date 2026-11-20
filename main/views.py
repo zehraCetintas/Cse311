@@ -21,6 +21,7 @@ from openpyxl.utils.exceptions import InvalidFileException
 
 from main.models import (
     Assessment,
+    AssessmentToLO,
     Course,
     LearningOutcome,
     LOToPO,
@@ -233,6 +234,8 @@ def register_student(request):
                         student_number=student_number,
                         first_name=first_name,
                         last_name=last_name,
+                        faculty="Engineering",
+                        department="Computer Engineering",
                     )
         except IntegrityError:
             continue
@@ -317,6 +320,37 @@ def instructor_dashboard(request):
     total_assessment_weight = sum(
         assessment.weight for assessment in assessments
     )
+    assessment_lo_rows = []
+    if selected_course:
+        from main.services.calculator import ensure_default_assessment_lo_mappings
+
+        ensure_default_assessment_lo_mappings(selected_course)
+        learning_outcomes = list(
+            selected_course.learning_outcomes.order_by("code", "pk")
+        )
+        mapping_by_identity = {}
+        for mapping in AssessmentToLO.objects.filter(
+            assessment__course=selected_course
+        ).select_related("assessment", "learning_outcome"):
+            identity = BolognaScraperService.assessment_identity(
+                mapping.assessment.name
+            )
+            mapping_by_identity.setdefault(identity, {})[
+                mapping.learning_outcome_id
+            ] = mapping.weight
+        for assessment in assessments:
+            weights = mapping_by_identity.get(
+                BolognaScraperService.assessment_identity(assessment.name), {}
+            )
+            assessment_lo_rows.append(
+                {
+                    "assessment": assessment,
+                    "outcomes": [
+                        {"outcome": outcome, "weight": weights.get(outcome.pk, 0)}
+                        for outcome in learning_outcomes
+                    ],
+                }
+            )
 
     return render(
         request,
@@ -325,12 +359,89 @@ def instructor_dashboard(request):
             "courses": courses,
             "selected_course": selected_course,
             "assessments": assessments,
+            "assessment_lo_rows": assessment_lo_rows,
+            "learning_outcomes": selected_course.learning_outcomes.order_by("code", "pk") if selected_course else [],
             "total_assessment_weight": total_assessment_weight,
             "assessment_weight_is_valid": isclose(
                 total_assessment_weight, 100, abs_tol=0.01
             ),
+            "roster": selected_course.enrolled_students.select_related("user").order_by("user__username", "student_number") if selected_course else [],
         },
     )
+
+
+@instructor_required
+@require_POST
+def save_assessment_lo_mappings(request):
+    course_id = _submitted_course_id(request)
+    if not course_id:
+        messages.error(request, "Choose one of your assigned courses.")
+        return redirect("instructor_dashboard")
+    course = get_object_or_404(Course, pk=course_id, instructor=request.user)
+    assessments = BolognaScraperService.deduplicate_assessments(
+        assessment
+        for assessment in course.assessments.order_by("name", "pk")
+        if BolognaScraperService.is_component_assessment(assessment.name)
+    )
+    learning_outcomes = list(course.learning_outcomes.order_by("code", "pk"))
+    if not assessments or not learning_outcomes:
+        messages.error(request, "This course needs scraped assessments and learning outcomes before mappings can be saved.")
+        return redirect(_dashboard_redirect(course.pk))
+
+    submitted_rows = []
+    for assessment in assessments:
+        row_weights = []
+        for outcome in learning_outcomes:
+            raw_weight = request.POST.get(
+                f"weight_{assessment.pk}_{outcome.pk}", ""
+            ).strip()
+            if not raw_weight:
+                weight = 0.0
+            else:
+                try:
+                    weight = float(raw_weight)
+                except ValueError:
+                    messages.error(request, f"Enter a valid weight for {assessment.name} / {outcome.code}.")
+                    return redirect(_dashboard_redirect(course.pk))
+            if not 0 <= weight <= 100:
+                messages.error(request, f"Weights for {assessment.name} must be between 0 and 100%.")
+                return redirect(_dashboard_redirect(course.pk))
+            row_weights.append((outcome, weight))
+        row_total = sum(weight for _, weight in row_weights)
+        if not isclose(row_total, 100.0, abs_tol=0.01):
+            messages.error(request, f"Weights for {assessment.name} must total 100% (currently {row_total:g}%).")
+            return redirect(_dashboard_redirect(course.pk))
+        submitted_rows.append((assessment, row_weights))
+
+    from main.services.calculator import POCalculator
+
+    with transaction.atomic():
+        all_course_assessments = list(course.assessments.all())
+        for assessment, row_weights in submitted_rows:
+            identity = BolognaScraperService.assessment_identity(assessment.name)
+            aliases = [
+                item
+                for item in all_course_assessments
+                if BolognaScraperService.assessment_identity(item.name) == identity
+            ]
+            AssessmentToLO.objects.filter(assessment__in=aliases).delete()
+            AssessmentToLO.objects.bulk_create(
+                [
+                    AssessmentToLO(
+                        assessment=assessment,
+                        learning_outcome=outcome,
+                        weight=weight,
+                    )
+                    for outcome, weight in row_weights
+                    if weight > 0
+                ]
+            )
+
+    for student in course.enrolled_students.all():
+        POCalculator.calculate_student_lo_scores(student, course)
+        POCalculator.calculate_student_po_scores_for_course(student, course)
+    messages.success(request, f"Assessment-to-LO weights saved for {course.code}; student contributions have been recalculated.")
+    return redirect(_dashboard_redirect(course.pk))
 
 
 @login_required
@@ -529,6 +640,7 @@ def student_dashboard(request):
                     "faculty": "Not specified",
                     "department": "Not specified",
                     "learning_outcomes": [],
+                    "available_courses": Course.objects.select_related("instructor").order_by("code"),
                 },
             )
         student = get_object_or_404(Student, pk=student_id)
@@ -619,8 +731,88 @@ def student_dashboard(request):
                 .select_related("course")
                 .order_by("course__code", "code")
             ),
+            "available_courses": Course.objects.select_related("instructor").order_by("code"),
         },
     )
+
+
+@login_required
+@require_POST
+def student_course_enrollment(request):
+    if request.user.role != User.Role.STUDENT:
+        return HttpResponseForbidden("Only students can change course enrollment.")
+    student = get_object_or_404(Student, user=request.user)
+    course = get_object_or_404(Course, pk=request.POST.get("course_id"))
+    action = request.POST.get("action")
+    if action == "enroll":
+        student.enrolled_courses.add(course)
+        messages.success(request, f"Enrolled in {course.code}.")
+    elif action == "drop":
+        student.enrolled_courses.remove(course)
+        messages.success(request, f"Dropped {course.code}.")
+    else:
+        messages.error(request, "Choose a valid enrollment action.")
+    return redirect("student_dashboard")
+
+
+@login_required
+def student_grades(request):
+    if request.user.role != User.Role.STUDENT:
+        return HttpResponseForbidden("Only students can access grades.")
+    student = get_object_or_404(Student, user=request.user)
+    courses = student.enrolled_courses.select_related("instructor").prefetch_related("assessments", "assessments__student_grades").order_by("code")
+    rows = []
+    for course in courses:
+        assessments = BolognaScraperService.deduplicate_assessments(
+            assessment
+            for assessment in course.assessments.order_by("name")
+            if BolognaScraperService.is_component_assessment(assessment.name)
+        )
+        grades_by_identity = {}
+        for grade in StudentGrade.objects.filter(
+            student=student, assessment__course=course
+        ).select_related("assessment"):
+            identity = BolognaScraperService.assessment_identity(
+                grade.assessment.name
+            )
+            grades_by_identity.setdefault(identity, []).append(grade.score)
+        scores_by_assessment = {
+            assessment.pk: next(
+                iter(
+                    grades_by_identity.get(
+                        BolognaScraperService.assessment_identity(assessment.name), []
+                    )
+                ),
+                None,
+            )
+            for assessment in assessments
+        }
+        all_assessments_graded = bool(assessments) and all(
+            score is not None for score in scores_by_assessment.values()
+        )
+        rows.append(
+            {
+                "course": course,
+                "assessments": [
+                    (assessment, scores_by_assessment[assessment.pk])
+                    for assessment in assessments
+                ],
+                "all_assessments_graded": all_assessments_graded,
+                "lo_scores": (
+                    POCalculator.calculate_student_lo_scores(student, course)
+                    if all_assessments_graded
+                    else {}
+                ),
+                "po_scores": (
+                    POCalculator.calculate_student_po_scores_for_course(
+                        student, course
+                    )
+                    if all_assessments_graded
+                    else {}
+                ),
+            }
+        )
+    return render(request, "student/grades.html", {"grade_courses": rows})
 
 
 @login_required

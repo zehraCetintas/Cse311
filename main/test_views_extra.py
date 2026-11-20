@@ -12,6 +12,7 @@ from main.models import (
     Assessment, AssessmentToLO, LOToPO, Student, StudentGrade, User
 )
 from main.services.bologna_scraper import BolognaScraperService
+from main.services.calculator import POCalculator
 
 OBS_URL = "https://obs.acibadem.edu.tr/course.aspx"
 
@@ -200,6 +201,131 @@ class StudentDashboardForStaffTestCase(TestCase):
         response = self.client.get(reverse("student_dashboard"), {"student_id": 9999})
 
         self.assertEqual(response.status_code, 404)
+
+
+class StudentGradesPageTestCase(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="grades-student", password="test-password", role=User.Role.STUDENT
+        )
+        self.student = Student.objects.create(
+            user=self.user, student_number="G1001", first_name="Ada", last_name="Lovelace"
+        )
+        self.course = Course.objects.create(code="CSE 311", title="Software")
+        self.student.enrolled_courses.add(self.course)
+        self.midterm = Assessment.objects.create(course=self.course, name="Midterm", weight=40)
+        self.midterm_duplicate = Assessment.objects.create(course=self.course, name="Midterm Exam", weight=40)
+        self.final = Assessment.objects.create(course=self.course, name="Final Exam", weight=60)
+        self.lo = LearningOutcome.objects.create(course=self.course, code="LO1", description="Design software")
+        self.po = ProgramOutcome.objects.create(code="PO1", title="Design", description="Design systems")
+        AssessmentToLO.objects.create(assessment=self.midterm, learning_outcome=self.lo, weight=100)
+        AssessmentToLO.objects.create(assessment=self.final, learning_outcome=self.lo, weight=100)
+        LOToPO.objects.create(learning_outcome=self.lo, program_outcome=self.po, weight=100)
+        self.client.force_login(self.user)
+
+    def test_bilingual_duplicates_are_deduplicated_and_scores_show_dash_until_complete(self):
+        StudentGrade.objects.create(student=self.student, assessment=self.midterm, score=85)
+
+        response = self.client.get(reverse("student_grades"))
+
+        self.assertEqual(response.status_code, 200)
+        row = response.context["grade_courses"][0]
+        self.assertEqual(len(row["assessments"]), 2)
+        self.assertFalse(row["all_assessments_graded"])
+        self.assertEqual(row["lo_scores"], {})
+        self.assertContains(response, "Midterm")
+        self.assertNotContains(response, "Midterm Exam")
+        self.assertContains(response, ">-</td>")
+
+    def test_contributions_are_calculated_after_all_unique_assessments_are_graded(self):
+        StudentGrade.objects.create(student=self.student, assessment=self.midterm, score=85)
+        StudentGrade.objects.create(student=self.student, assessment=self.final, score=95)
+
+        response = self.client.get(reverse("student_grades"))
+
+        row = response.context["grade_courses"][0]
+        self.assertTrue(row["all_assessments_graded"])
+        self.assertEqual(row["lo_scores"]["LO1"], 90)
+        self.assertEqual(row["po_scores"]["PO1"], 90)
+
+    def test_scraped_assessment_weights_supply_lo_scores_when_no_assessment_map_exists(self):
+        second_lo = LearningOutcome.objects.create(
+            course=self.course, code="LO2", description="Test systems"
+        )
+        AssessmentToLO.objects.all().delete()
+        StudentGrade.objects.create(student=self.student, assessment=self.midterm, score=85)
+        StudentGrade.objects.create(student=self.student, assessment=self.final, score=95)
+
+        response = self.client.get(reverse("student_grades"))
+
+        row = response.context["grade_courses"][0]
+        self.assertTrue(row["all_assessments_graded"])
+        self.assertEqual(row["lo_scores"]["LO1"], 90)
+        self.assertEqual(row["lo_scores"]["LO2"], 90)
+        self.assertEqual(row["po_scores"]["PO1"], 90)
+        for assessment in (self.midterm, self.final):
+            mappings = list(AssessmentToLO.objects.filter(assessment=assessment))
+            self.assertEqual({m.learning_outcome_id for m in mappings}, {self.lo.pk, second_lo.pk})
+            self.assertAlmostEqual(sum(m.weight for m in mappings), 100)
+
+
+class InstructorAssessmentLOMappingTestCase(TestCase):
+    def setUp(self):
+        self.instructor = User.objects.create_user(
+            username="mapping-instructor", password="test-password", role=User.Role.INSTRUCTOR
+        )
+        self.course = Course.objects.create(
+            code="CSE 411", title="Artificial Intelligence", instructor=self.instructor
+        )
+        self.assessment = Assessment.objects.create(
+            course=self.course, name="Midterm", weight=100
+        )
+        self.lo1 = LearningOutcome.objects.create(course=self.course, code="LO1", description="Build models")
+        self.lo2 = LearningOutcome.objects.create(course=self.course, code="LO2", description="Evaluate models")
+        self.client.force_login(self.instructor)
+
+    def test_instructor_dashboard_displays_equal_split_defaults(self):
+        response = self.client.get(reverse("instructor_dashboard"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Assessment-to-LO Weight Matrix")
+        mappings = list(AssessmentToLO.objects.filter(assessment=self.assessment))
+        self.assertEqual([mapping.weight for mapping in mappings], [50, 50])
+
+    def test_instructor_can_save_valid_row_total_and_trigger_recalculation(self):
+        student = Student.objects.create(student_number="M411", first_name="Ada", last_name="Lovelace")
+        student.enrolled_courses.add(self.course)
+        StudentGrade.objects.create(student=student, assessment=self.assessment, score=80)
+
+        response = self.client.post(
+            reverse("save_assessment_lo_mappings"),
+            {
+                "course_id": self.course.pk,
+                f"weight_{self.assessment.pk}_{self.lo1.pk}": "70",
+                f"weight_{self.assessment.pk}_{self.lo2.pk}": "30",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            list(AssessmentToLO.objects.filter(assessment=self.assessment).order_by("learning_outcome__code").values_list("weight", flat=True)),
+            [70, 30],
+        )
+        self.assertIn("LO1", POCalculator.calculate_student_lo_scores(student, self.course))
+
+    def test_instructor_cannot_save_row_that_does_not_total_100(self):
+        response = self.client.post(
+            reverse("save_assessment_lo_mappings"),
+            {
+                "course_id": self.course.pk,
+                f"weight_{self.assessment.pk}_{self.lo1.pk}": "70",
+                f"weight_{self.assessment.pk}_{self.lo2.pk}": "20",
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(AssessmentToLO.objects.filter(assessment=self.assessment).exists())
+        self.assertIn("must total 100%", messages_of(response)[0])
 
 
 class ScraperCourseCommandTestCase(TestCase):

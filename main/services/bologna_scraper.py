@@ -606,6 +606,9 @@ class BolognaScraperService:
                         name=assessment["name"],
                         defaults={"weight": assessment["weight"]},
                     )
+                from main.services.calculator import ensure_default_assessment_lo_mappings
+
+                ensure_default_assessment_lo_mappings(course)
                 synced_courses.append(course)
 
         return synced_courses if batch else synced_courses[0]

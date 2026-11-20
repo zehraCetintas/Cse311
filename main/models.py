@@ -121,8 +121,8 @@ class Student(models.Model):
     student_number = models.CharField(max_length=50, unique=True)
     first_name = models.CharField(max_length=100)
     last_name = models.CharField(max_length=100)
-    faculty = models.CharField(max_length=255, blank=True)
-    department = models.CharField(max_length=255, blank=True)
+    faculty = models.CharField(max_length=255, blank=True, default="Engineering")
+    department = models.CharField(max_length=255, blank=True, default="Computer Engineering")
     profile_picture = models.ImageField(
         upload_to='profile_pics/',
         blank=True,

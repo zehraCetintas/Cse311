@@ -9,14 +9,21 @@ from main.models import Assessment, Student, StudentGrade
 
 
 class GradeImporterService:
-    STUDENT_NUMBER_HEADERS = ("student number", "student id", "ogrenci no", "id")
+    STUDENT_NUMBER_HEADERS = ("student number", "student id", "student no", "ogrenci no", "id")
+    FULL_NAME_HEADERS = ("full name", "student name", "name")
     GRADE_HEADERS = ("grade", "score", "not", "puan")
 
     @staticmethod
     def _normalize_header(value):
-        normalized = unicodedata.normalize("NFKD", str(value))
+        normalized = unicodedata.normalize("NFKD", str(value).replace("ı", "i").replace("İ", "I"))
         normalized = normalized.encode("ascii", "ignore").decode("ascii")
         return re.sub(r"[^a-z0-9]+", " ", normalized.casefold()).strip()
+
+    @staticmethod
+    def _normalize_name(value):
+        normalized = unicodedata.normalize("NFKD", str(value).replace("ı", "i").replace("İ", "I"))
+        normalized = normalized.encode("ascii", "ignore").decode("ascii")
+        return re.sub(r"\s+", " ", normalized.casefold()).strip()
 
     @classmethod
     def _find_header_columns(cls, sheet):
@@ -24,6 +31,7 @@ class GradeImporterService:
             sheet.iter_rows(values_only=True), start=1
         ):
             student_number_column = None
+            full_name_column = None
             grade_column = None
             for column_number, value in enumerate(row):
                 if value is None:
@@ -34,13 +42,15 @@ class GradeImporterService:
                     for header in cls.STUDENT_NUMBER_HEADERS
                 ):
                     student_number_column = column_number
+                if any(re.search(rf"\b{re.escape(header)}\b", label) for header in cls.FULL_NAME_HEADERS):
+                    full_name_column = column_number
                 if any(
                     re.search(rf"\b{re.escape(header)}\b", label)
                     for header in cls.GRADE_HEADERS
                 ):
                     grade_column = column_number
-            if student_number_column is not None and grade_column is not None:
-                return row_number, student_number_column, grade_column
+            if (student_number_column is not None or full_name_column is not None) and grade_column is not None:
+                return row_number, student_number_column, full_name_column, grade_column
         raise ValueError(
             "No header row containing student number and grade columns was found."
         )
@@ -53,10 +63,10 @@ class GradeImporterService:
 
     @staticmethod
     def import_excel_grades(assessment: Assessment, file_obj):
-        """Import grade rows below a detected student-number/grade header."""
+        """Import a single assessment atomically, matching enrolled students by ID or name."""
         workbook = openpyxl.load_workbook(file_obj, data_only=True)
         sheet = workbook.active
-        header_row, student_number_column, grade_column = (
+        header_row, student_number_column, full_name_column, grade_column = (
             GradeImporterService._find_header_columns(sheet)
         )
 
@@ -64,25 +74,16 @@ class GradeImporterService:
         if not rows:
             raise ValueError("The uploaded Excel file contains no grade rows.")
 
-        student_numbers = []
-        for row in rows:
-            raw_student_number = GradeImporterService._cell(
-                row, student_number_column
-            )
-            if raw_student_number is not None and str(raw_student_number).strip():
-                student_numbers.append(str(raw_student_number).strip())
-
-        students_map = {
-            student.student_number: student
-            for student in Student.objects.filter(
-                student_number__in=student_numbers
-            )
-        }
+        enrolled = list(assessment.course.enrolled_students.all())
+        students_map = {student.student_number.casefold(): student for student in enrolled}
+        names_map = {}
+        for student in enrolled:
+            name = GradeImporterService._normalize_name(f"{student.first_name} {student.last_name}")
+            names_map.setdefault(name, []).append(student)
         existing_grades = {
             grade.student_id: grade
             for grade in StudentGrade.objects.filter(
-                assessment=assessment,
-                student__student_number__in=student_numbers,
+                assessment=assessment, student__in=enrolled,
             )
         }
 
@@ -91,27 +92,32 @@ class GradeImporterService:
         errors = []
 
         for row_number, row in enumerate(rows, start=header_row + 1):
-            raw_student_number = GradeImporterService._cell(
-                row, student_number_column
-            )
+            raw_student_number = (GradeImporterService._cell(row, student_number_column)
+                                  if student_number_column is not None else None)
+            raw_full_name = (GradeImporterService._cell(row, full_name_column)
+                             if full_name_column is not None else None)
             raw_score = GradeImporterService._cell(row, grade_column)
 
-            if raw_student_number is None and raw_score is None:
+            if raw_student_number is None and raw_full_name is None and raw_score is None:
                 continue
             student_number = (
                 str(raw_student_number).strip()
                 if raw_student_number is not None
                 else ""
             )
-            if not student_number:
-                errors.append(f"Row {row_number}: Missing student number.")
-                student = None
-            else:
-                student = students_map.get(student_number)
-                if student is None:
+            student = students_map.get(student_number.casefold()) if student_number else None
+            if student is None and raw_full_name is not None and str(raw_full_name).strip():
+                matches = names_map.get(GradeImporterService._normalize_name(raw_full_name), [])
+                student = matches[0] if len(matches) == 1 else None
+                if len(matches) > 1:
+                    errors.append(f"Row {row_number}: Full name '{raw_full_name}' matches multiple enrolled students.")
+            if student is None:
+                identifier = student_number or (str(raw_full_name).strip() if raw_full_name else "")
+                if not identifier:
+                    errors.append(f"Row {row_number}: Missing student number or full name.")
+                else:
                     errors.append(
-                        f"Row {row_number}: Student with ID "
-                        f"'{student_number}' does not exist in the database."
+                        f"Row {row_number}: Student '{identifier}' is not uniquely matched among students enrolled in this course."
                     )
 
             try:

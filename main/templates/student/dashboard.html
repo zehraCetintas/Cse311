@@ -17,6 +17,7 @@
         </div>
       {% endfor %}
     </section>
+
   {% endif %}
 
   {% if students is not None %}
@@ -41,6 +42,14 @@
   {% endif %}
 
   {% if student %}
+    {% if request.user.role == "STUDENT" %}
+      <section id="course-enrollment" class="card shadow-sm mb-4">
+        <div class="card-header bg-white py-3"><h2 class="h4 mb-0">Course Selection / Enrollment</h2></div>
+        <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Course Code</th><th>Course Title</th><th>Assigned Instructor</th><th>Action</th></tr></thead><tbody>
+          {% for course in available_courses %}<tr><td>{{ course.code }}</td><td>{{ course.title }}</td><td>{% if course.instructor %}{{ course.instructor.get_full_name|default:course.instructor.username }}{% else %}-{% endif %}</td><td><form method="post" action="{% url 'student_course_enrollment' %}">{% csrf_token %}<input type="hidden" name="course_id" value="{{ course.pk }}">{% if course in enrolled_courses %}<button class="btn btn-sm btn-outline-secondary" name="action" value="drop">Drop</button>{% else %}<button class="btn btn-sm btn-primary" name="action" value="enroll">Enroll</button>{% endif %}</form></td></tr>{% empty %}<tr><td colspan="4" class="text-secondary">No courses are available yet.</td></tr>{% endfor %}
+        </tbody></table></div>
+      </section>
+    {% endif %}
     <section class="card shadow-sm mb-4">
       <div class="card-header bg-white py-3">
         <h2 class="h4 mb-0">Academic Identity Card</h2>
@@ -67,11 +76,11 @@
             <div class="h5 mb-0">{{ student.student_number }}</div>
           </div>
           <div class="col-md">
-            <div class="small text-secondary">Faculty · Fakülte</div>
+            <div class="small text-secondary">Faculty</div>
             <div class="h6 mb-0">{{ faculty }}</div>
           </div>
           <div class="col-md">
-            <div class="small text-secondary">Department · Bölüm</div>
+            <div class="small text-secondary">Department</div>
             <div class="h5 mb-0">{{ department }}</div>
           </div>
         </div>
@@ -155,7 +164,7 @@
                       <td>{{ breakdown.course.title }}</td>
                       <td>{{ grade.assessment.name }}</td>
                       <td>{{ grade.assessment.weight|floatformat:2 }}%</td>
-                      <td><span class="fw-semibold">{{ grade.score|floatformat:2 }}%</span></td>
+                      <td><span class="fw-semibold">{{ grade.score }}</span></td>
                       <td>
                         {% for lo_code, lo_score in breakdown.lo_scores.items %}
                           {% if lo_score is not None %}

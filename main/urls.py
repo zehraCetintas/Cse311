@@ -9,7 +9,10 @@ urlpatterns = [
     path("reset-password/", views.reset_password, name="reset_password"),
     path("register/", views.register_student, name="register_student"),
     path("instructor/", views.instructor_dashboard, name="instructor_dashboard"),
+    path("instructor/assessment-lo-mappings/", views.save_assessment_lo_mappings, name="save_assessment_lo_mappings"),
     path("student/", views.student_dashboard, name="student_dashboard"),
+    path("student/enrollment/", views.student_course_enrollment, name="student_course_enrollment"),
+    path("student/grades/", views.student_grades, name="student_grades"),
     path(
         "student/program-outcomes/",
         views.student_program_outcomes,

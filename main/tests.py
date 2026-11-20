@@ -790,6 +790,9 @@ class GradeImporterTestCase(TestCase):
         self.student1 = Student.objects.create(student_number="S101", first_name="Ali", last_name="Yılmaz")
         self.student2 = Student.objects.create(student_number="S102", first_name="Ayşe", last_name="Demir")
 
+        self.student1.enrolled_courses.add(self.course)
+        self.student2.enrolled_courses.add(self.course)
+
     def create_excel_in_memory(self, rows, header=("Student Number", "Score")):
         """Helper function to create an Excel file directly in memory."""
         wb = openpyxl.Workbook()
@@ -877,13 +880,25 @@ class GradeImporterTestCase(TestCase):
 
         self.assertFalse(result["success"])
         self.assertIn(
-            "Row 3: Student with ID 'UNKNOWN' does not exist in the database.",
+            "Row 3: Student 'UNKNOWN' is not uniquely matched among students enrolled in this course.",
             result["errors"],
         )
         self.assertEqual(result["created"], 0)
         self.assertEqual(result["updated"], 0)
         self.assertEqual(StudentGrade.objects.filter(assessment=self.midterm).count(), 0)
 
+
+    def test_full_name_fallback_matches_enrolled_student_case_insensitively(self):
+        excel_file = self.create_excel_in_memory(
+            [["", f"{self.student1.first_name} {self.student1.last_name}".upper(), 77]],
+            header=("Student ID", "Full Name", "Grade")
+        )
+        result = GradeImporterService.import_excel_grades(self.midterm, excel_file)
+        self.assertTrue(result["success"], result["errors"])
+        self.assertEqual(
+            StudentGrade.objects.get(student=self.student1, assessment=self.midterm).score,
+            77,
+        )
 
 
 from django.urls import reverse
@@ -1006,6 +1021,7 @@ class InstructorDashboardViewTestCase(TestCase):
         student = Student.objects.create(
             student_number="S311", first_name="Ada", last_name="Lovelace"
         )
+        student.enrolled_courses.add(self.course)
         self.client.force_login(self.instructor)
 
         response = self.client.post(

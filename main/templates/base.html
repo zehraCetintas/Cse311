@@ -115,10 +115,11 @@
             {% elif request.user.role == "INSTRUCTOR" %}
               <li class="nav-item"><a class="nav-link" href="{% url 'instructor_dashboard' %}">Your Courses</a></li>
             {% else %}
-              <li class="nav-item"><a class="nav-link" href="{% url 'student_dashboard' %}#dashboard">Dashboard · Ana Sayfa</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'student_dashboard' %}#dashboard">Dashboard · Home</a></li>
               <li class="nav-item"><a class="nav-link" href="{% url 'student_program_outcomes' %}">PO List</a></li>
               <li class="nav-item"><a class="nav-link" href="{% url 'student_dashboard' %}#learning-outcomes">Learning Outcomes · LO List</a></li>
               <li class="nav-item"><a class="nav-link" href="{% url 'student_dashboard' %}#academic-breakdown">My Grades Breakdown</a></li>
+              <li class="nav-item"><a class="nav-link" href="{% url 'student_grades' %}">Grades</a></li>
             {% endif %}
           </ul>
         </nav>
